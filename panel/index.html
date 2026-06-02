@@ -6,16 +6,16 @@
   <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
-  <!-- ===== MAIN VIEW ===== -->
   <div id="mainView">
     <div class="header">
       <span class="title">Smart Grab</span>
       <button id="settingsBtn" class="icon-btn" title="Settings">⚙</button>
     </div>
 
-    <label class="field-label">Video URL</label>
+    <label class="field-label">Video URL(s) — one per line</label>
     <div class="row">
-      <input id="url" type="text" placeholder="https://youtube.com/watch?v=...">
+      <textarea id="url" rows="3" placeholder="https://youtube.com/watch?v=...
+https://youtube.com/watch?v=..."></textarea>
       <button id="pasteBtn" class="icon-btn" title="Paste">⎘</button>
     </div>
 
@@ -48,75 +48,52 @@
       </div>
     </div>
 
-    <label class="checkbox">
-      <input id="clipEnabled" type="checkbox"> Clip time range
-    </label>
-    <div id="clipRow" class="row two-col hidden">
-      <div>
-        <label class="field-label">Start</label>
-        <input id="startTime" type="text" value="00:00:00">
-      </div>
-      <div>
-        <label class="field-label">End</label>
-        <input id="endTime" type="text" placeholder="00:01:30">
+    <label class="checkbox"><input id="clipEnabled" type="checkbox"> Clip time range (single video)</label>
+    <div id="clipRow" class="hidden">
+      <div id="clipSlider"></div>
+      <div id="clipManual" class="row two-col hidden">
+        <div><label class="field-label">Start</label><input id="startTime" type="text" value="00:00:00"></div>
+        <div><label class="field-label">End</label><input id="endTime" type="text" placeholder="00:01:30"></div>
       </div>
     </div>
 
     <div class="dest-hint" id="destHint">Saving to: project folder</div>
 
     <div class="row">
-      <button id="downloadBtn" class="primary">Download &amp; Import</button>
-      <button id="cancelBtn" class="hidden">Cancel</button>
+      <button id="addBtn" class="primary">Add to Queue</button>
     </div>
+    <div id="topStatus" class="status"></div>
 
-    <div id="progressWrap" class="hidden">
-      <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
-      <div id="statusMsg" class="status"></div>
+    <div class="queue-head">
+      <span class="field-label">Queue</span>
+      <span class="queue-actions">
+        <button id="cancelAllBtn" class="mini">Cancel all</button>
+        <button id="clearDoneBtn" class="mini">Clear done</button>
+      </span>
     </div>
-
-    <div id="errorBox" class="error-box hidden">
-      <div class="error-head">
-        <span>Download Failed</span>
-        <button id="copyErrBtn" class="icon-btn" title="Copy">⧉</button>
-      </div>
-      <pre id="errorDetail"></pre>
-    </div>
-
-    <div id="successBox" class="success-box hidden">
-      <div id="successText"></div>
-    </div>
+    <div id="queueList"><div class="empty">Nothing queued yet.</div></div>
   </div>
 
-  <!-- ===== SETTINGS VIEW ===== -->
   <div id="settingsView" class="hidden">
     <div class="header">
       <span class="title">Settings</span>
       <button id="backBtn" class="icon-btn" title="Back">←</button>
     </div>
-
     <label class="field-label">Where to save downloads</label>
     <label class="radio"><input type="radio" name="mode" value="sync"> Sync to current project
-      <span class="radio-sub">creates a "Downloaded Video" folder next to the .prproj</span>
-    </label>
+      <span class="radio-sub">creates a "Downloaded Video" folder next to the .prproj</span></label>
     <label class="radio"><input type="radio" name="mode" value="custom"> Custom folder
-      <span class="radio-sub">always save to a fixed folder</span>
-    </label>
-
+      <span class="radio-sub">always save to a fixed folder</span></label>
     <div id="customRow" class="row hidden">
       <input id="customFolder" type="text" readonly placeholder="No folder chosen">
       <button id="chooseFolderBtn">Browse…</button>
     </div>
-
     <label class="field-label">Project bin name</label>
     <input id="binName" type="text" value="Downloaded Video">
-
     <hr>
     <button id="updateYtdlpBtn">Update yt-dlp</button>
     <div id="updateStatus" class="status"></div>
-
-    <div class="row settings-actions">
-      <button id="saveSettingsBtn" class="primary">Save</button>
-    </div>
+    <div class="row settings-actions"><button id="saveSettingsBtn" class="primary">Save</button></div>
   </div>
 
   <script src="./js/CSInterface.js"></script>

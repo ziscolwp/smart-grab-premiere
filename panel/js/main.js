@@ -6,39 +6,136 @@ var settingsMod = require(extRoot + '/js/settings.js');
 var binaries = require(extRoot + '/js/binaries.js');
 var clipboard = require(extRoot + '/js/clipboard.js');
 var editKeys = require(extRoot + '/js/editKeys.js');
+var timecode = require(extRoot + '/js/timecode.js');
+var urls = require(extRoot + '/js/urls.js');
+var metadata = require(extRoot + '/js/metadata.js');
+var rangeSlider = require(extRoot + '/js/rangeSlider.js');
+var queueMod = require(extRoot + '/js/queue.js');
 
 var $ = function (id) { return document.getElementById(id); };
-var state = { settings: settingsMod.load(), proc: null };
+var state = { settings: settingsMod.load() };
+var idCounter = 0;
+var clip = { slider: null, durationSec: null, startSec: 0, endSec: 0 };
 
-// ---------- ExtendScript helpers ----------
 function evalJSX(fnCall, cb) { cs.evalScript(fnCall, cb); }
 function jsStr(s) { return JSON.stringify(String(s)); }
+function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+// ---------- The queue ----------
+function resolveOutputDir(opts, cb) {
+  var s = state.settings;
+  if (s.destinationMode === 'custom') {
+    if (!s.customFolder) return cb(new Error('No custom folder set. Open Settings and choose one.'));
+    return cb(null, s.customFolder);
+  }
+  evalJSX('sg_getProjectDir()', function (res) {
+    if (!res || res.indexOf('ERROR:') === 0) return cb(new Error(res ? res.substring(6) : 'Could not read project.'));
+    var sep = res.indexOf('\\') !== -1 ? '\\' : '/';
+    cb(null, res + sep + s.binName);
+  });
+}
+function importFile(path, cb) {
+  evalJSX('sg_importToBin(' + jsStr(path) + ', ' + jsStr(state.settings.binName) + ')', function (r) {
+    cb(r === 'OK' ? null : new Error(r || 'import failed'));
+  });
+}
+var queue = queueMod.createQueue({
+  extRoot: extRoot,
+  makeId: function () { return 'q' + (++idCounter); },
+  onChange: renderQueue,
+  fetchInfo: function (url, cb) { metadata.fetchInfo(url, extRoot, cb); },
+  resolveOutputDir: resolveOutputDir,
+  importFile: importFile,
+  download: engine.download,
+  titleConcurrency: 4
+});
+
+function badge(it) {
+  switch (it.status) {
+    case 'pending': return 'Waiting…';
+    case 'fetching-info': return 'Getting title…';
+    case 'queued': return 'Queued';
+    case 'downloading': return it.statusMsg || 'Downloading…';
+    case 'done': return '✓ ' + (it.statusMsg || 'Done');
+    case 'error': return '⚠ ' + (it.statusMsg || 'Failed');
+    case 'canceled': return 'Canceled';
+    default: return it.status;
+  }
+}
+function renderQueue(items) {
+  var el = $('queueList');
+  if (!items.length) { el.innerHTML = '<div class="empty">Nothing queued yet.</div>'; return; }
+  el.innerHTML = '';
+  items.forEach(function (it) {
+    var row = document.createElement('div');
+    row.className = 'qitem' + (it.status === 'downloading' ? ' active' : '');
+    var dur = it.durationSec != null ? timecode.secondsToHMS(it.durationSec) : '';
+    var statusClass = it.status === 'error' ? ' error' : (it.status === 'done' ? ' done' : '');
+    var showProgress = it.status === 'downloading';
+    var btn = it.status === 'downloading'
+      ? '<button class="qbtn" data-cancel="' + it.id + '" title="Cancel">✕</button>'
+      : '<button class="qbtn" data-remove="' + it.id + '" title="Remove">🗑</button>';
+    row.innerHTML =
+      '<div class="qtop"><span class="qtitle">' + escHtml(it.title || it.url) + '</span>' +
+      '<span class="qdur">' + dur + '</span></div>' +
+      (showProgress ? '<div class="progress-track"><div class="progress-bar" style="width:' + (it.progress || 0) + '%"></div></div>' : '') +
+      '<div class="qmeta"><span class="qstatus' + statusClass + '">' + escHtml(badge(it)) + '</span>' + btn + '</div>';
+    el.appendChild(row);
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-cancel]'), function (b) {
+    b.addEventListener('click', function () { queue.cancel(b.getAttribute('data-cancel')); });
+  });
+  Array.prototype.forEach.call(el.querySelectorAll('[data-remove]'), function (b) {
+    b.addEventListener('click', function () { queue.remove(b.getAttribute('data-remove')); });
+  });
+}
 
 // ---------- View switching ----------
-$('settingsBtn').addEventListener('click', function () { showSettings(); });
+$('settingsBtn').addEventListener('click', showSettings);
 $('backBtn').addEventListener('click', function () { $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden'); });
 
-// ---------- Quality => toggle audio/video format ----------
+// ---------- Quality => format toggle ----------
 $('quality').addEventListener('change', function () {
   var audio = this.value === 'audioOnly';
   $('videoFormat').classList.toggle('hidden', audio);
   $('audioFormat').classList.toggle('hidden', !audio);
 });
 
-// ---------- Clip toggle ----------
+// ---------- Clip toggle => set up slider for the single URL ----------
 $('clipEnabled').addEventListener('change', function () {
   $('clipRow').classList.toggle('hidden', !this.checked);
+  if (this.checked) setupClip();
 });
+function singleUrlOrNull() {
+  var list = urls.parse($('url').value);
+  return list.length === 1 ? list[0] : null;
+}
+function setupClip() {
+  $('clipSlider').innerHTML = '';
+  $('clipManual').classList.add('hidden');
+  clip.slider = null; clip.durationSec = null;
+  var one = singleUrlOrNull();
+  if (!one) { $('clipSlider').innerHTML = '<div class="empty">Add a single URL to trim it.</div>'; return; }
+  $('clipSlider').innerHTML = '<div class="empty">Reading video length…</div>';
+  metadata.fetchInfo(one, extRoot, function (err, info) {
+    if (err || !info.durationSec) {
+      $('clipSlider').innerHTML = '<div class="empty">Couldn\'t read length — enter manually:</div>';
+      $('clipManual').classList.remove('hidden');
+      return;
+    }
+    clip.durationSec = info.durationSec;
+    clip.startSec = 0; clip.endSec = info.durationSec;
+    clip.slider = rangeSlider.create(document, $('clipSlider'), info.durationSec, function (s, e) {
+      clip.startSec = s; clip.endSec = e;
+    });
+  });
+}
 
-// ---------- Paste button (reads the system clipboard via Node — see clipboard.js) ----------
+// ---------- Paste button + keyboard shortcuts ----------
 $('pasteBtn').addEventListener('click', function () {
   var t = clipboard.read();
   if (t) $('url').value = t.replace(/^\s+|\s+$/g, '');
 });
-
-// ---------- Keyboard edit shortcuts ----------
-// CEF in a CEP panel does NOT wire the macOS Edit accelerators (Cmd+V/C/X/A) for text
-// inputs, so we handle them ourselves using the Node-backed clipboard.
 document.addEventListener('keydown', function (e) {
   var action = editKeys.editAction(e);
   if (!action) return;
@@ -46,28 +143,25 @@ document.addEventListener('keydown', function (e) {
   if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
   var start = el.selectionStart == null ? el.value.length : el.selectionStart;
   var end = el.selectionEnd == null ? el.value.length : el.selectionEnd;
-
   if (action === 'selectAll') { e.preventDefault(); el.select(); return; }
   if (action === 'copy') { e.preventDefault(); clipboard.write(el.value.slice(start, end)); return; }
-  if (el.readOnly) return; // paste/cut are not valid on read-only fields
+  if (el.readOnly) return;
   if (action === 'paste') {
     e.preventDefault();
-    var clip = clipboard.read().replace(/[\r\n]+/g, ''); // single-line inputs
-    if (clip) {
-      var r = editKeys.applyPaste(el.value, start, end, clip);
-      el.value = r.value;
-      el.setSelectionRange(r.caret, r.caret);
+    var raw = clipboard.read();
+    var clipText = el.tagName === 'INPUT' ? raw.replace(/[\r\n]+/g, '') : raw; // keep newlines in the URL textarea
+    if (clipText) {
+      var r = editKeys.applyPaste(el.value, start, end, clipText);
+      el.value = r.value; el.setSelectionRange(r.caret, r.caret);
     }
   } else if (action === 'cut') {
     e.preventDefault();
     var c = editKeys.applyCut(el.value, start, end);
-    clipboard.write(c.removed);
-    el.value = c.value;
-    el.setSelectionRange(c.caret, c.caret);
+    clipboard.write(c.removed); el.value = c.value; el.setSelectionRange(c.caret, c.caret);
   }
 });
 
-// ---------- Restore last-used options ----------
+// ---------- Settings ----------
 function applySettingsToUI() {
   var s = state.settings;
   $('quality').value = s.lastQuality;
@@ -80,8 +174,6 @@ function applySettingsToUI() {
     ? 'Saving to: "' + s.binName + '" folder next to the project'
     : 'Saving to: ' + s.customFolder;
 }
-
-// ---------- Settings view ----------
 function showSettings() {
   var s = state.settings;
   var radios = document.getElementsByName('mode');
@@ -90,16 +182,12 @@ function showSettings() {
   $('binName').value = s.binName;
   $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
   $('updateStatus').textContent = '';
-  $('mainView').classList.add('hidden');
-  $('settingsView').classList.remove('hidden');
+  $('mainView').classList.add('hidden'); $('settingsView').classList.remove('hidden');
 }
-
 (function wireSettings() {
   var radios = document.getElementsByName('mode');
   for (var i = 0; i < radios.length; i++) {
-    radios[i].addEventListener('change', function () {
-      $('customRow').classList.toggle('hidden', this.value !== 'custom');
-    });
+    radios[i].addEventListener('change', function () { $('customRow').classList.toggle('hidden', this.value !== 'custom'); });
   }
   $('chooseFolderBtn').addEventListener('click', function () {
     evalJSX('sg_pickFolder()', function (res) {
@@ -107,119 +195,94 @@ function showSettings() {
     });
   });
   $('updateYtdlpBtn').addEventListener('click', function () {
-    $('updateStatus').textContent = 'Updating yt-dlp…';
-    $('updateYtdlpBtn').disabled = true;
+    $('updateStatus').textContent = 'Updating yt-dlp…'; $('updateYtdlpBtn').disabled = true;
     binaries.updateYtDlp(function (err, dest) {
       $('updateYtdlpBtn').disabled = false;
       $('updateStatus').textContent = err ? ('Update failed: ' + err.message) : ('Updated: ' + dest);
     });
   });
   $('saveSettingsBtn').addEventListener('click', function () {
-    var mode = 'sync';
-    var radios2 = document.getElementsByName('mode');
+    var mode = 'sync', radios2 = document.getElementsByName('mode');
     for (var j = 0; j < radios2.length; j++) if (radios2[j].checked) mode = radios2[j].value;
     state.settings.destinationMode = mode;
     state.settings.customFolder = $('customFolder').value;
     state.settings.binName = $('binName').value || 'Downloaded Video';
     settingsMod.save(state.settings);
     applySettingsToUI();
-    $('settingsView').classList.add('hidden');
-    $('mainView').classList.remove('hidden');
+    $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden');
   });
 })();
 
-// ---------- Download flow ----------
-function setBusy(busy) {
-  $('downloadBtn').disabled = busy;
-  $('cancelBtn').classList.toggle('hidden', !busy);
-}
-function showError(msg) {
-  $('errorDetail').textContent = msg;
-  $('errorBox').classList.remove('hidden');
-}
-function clearOutputs() {
-  $('errorBox').classList.add('hidden');
-  $('successBox').classList.add('hidden');
-  $('progressWrap').classList.remove('hidden');
-}
-
-$('copyErrBtn').addEventListener('click', function () {
-  if (navigator.clipboard) navigator.clipboard.writeText($('errorDetail').textContent);
-});
-$('cancelBtn').addEventListener('click', function () {
-  if (state.proc) { try { state.proc.kill(); } catch (e) {} }
-  setBusy(false);
-  $('statusMsg').textContent = 'Cancelled';
-});
-
-function resolveOutputDir(cb) {
-  var s = state.settings;
-  if (s.destinationMode === 'custom') {
-    if (!s.customFolder) return cb(new Error('No custom folder set. Open Settings and choose one.'));
-    return cb(null, s.customFolder);
+// ---------- Build per-item options snapshot ----------
+function currentOpts(allowClip) {
+  var o = {
+    quality: $('quality').value,
+    videoFormat: $('videoFormat').value,
+    audioFormat: $('audioFormat').value,
+    clipEnabled: false
+  };
+  if (allowClip && $('clipEnabled').checked) {
+    var startSec, endSec;
+    if (clip.slider) { var r = clip.slider.getRange(); startSec = r.start; endSec = r.end; }
+    else { startSec = timecode.parseFlexible($('startTime').value); endSec = timecode.parseFlexible($('endTime').value); }
+    if (startSec != null && endSec != null && endSec > startSec) {
+      o.clipEnabled = true;
+      o.startTime = timecode.secondsToHMS(startSec);
+      o.endTime = timecode.secondsToHMS(endSec);
+    }
   }
-  // sync mode: project dir + bin-named subfolder
-  evalJSX('sg_getProjectDir()', function (res) {
-    if (!res || res.indexOf('ERROR:') === 0) return cb(new Error(res ? res.substring(6) : 'Could not read project.'));
-    var sep = res.indexOf('\\') !== -1 ? '\\' : '/';
-    cb(null, res + sep + s.binName);
-  });
+  return o;
 }
-
-function persistLastOptions(opts) {
-  state.settings.lastQuality = opts.quality;
-  state.settings.lastVideoFormat = opts.videoFormat;
-  state.settings.lastAudioFormat = opts.audioFormat;
+function persistLastOptions(o) {
+  state.settings.lastQuality = o.quality;
+  state.settings.lastVideoFormat = o.videoFormat;
+  state.settings.lastAudioFormat = o.audioFormat;
   settingsMod.save(state.settings);
 }
 
-$('downloadBtn').addEventListener('click', function () {
-  var url = $('url').value.replace(/^\s+|\s+$/g, '');
-  if (!url) { showError('Enter a video URL first.'); return; }
+// ---------- Add to queue ----------
+$('addBtn').addEventListener('click', function () {
+  var list = urls.parse($('url').value);
+  if (!list.length) { $('topStatus').textContent = 'Paste at least one video URL.'; return; }
+  var single = list.length === 1;
+  var opts = currentOpts(single);
+  persistLastOptions(opts);
 
-  clearOutputs();
-  setBusy(true);
-  $('progressBar').style.width = '0%';
-  $('statusMsg').textContent = 'Preparing…';
+  var toAdd = [];
+  var pending = list.length;
+  $('topStatus').textContent = 'Adding…';
 
-  resolveOutputDir(function (derr, outputDir) {
-    if (derr) { setBusy(false); $('progressWrap').classList.add('hidden'); showError(derr.message); return; }
+  function done() {
+    pending--;
+    if (pending === 0) {
+      queue.addUrls(toAdd);
+      $('topStatus').textContent = '';
+      $('url').value = '';
+      $('clipEnabled').checked = false; $('clipRow').classList.add('hidden');
+    }
+  }
 
-    var opts = {
-      url: url, outputDir: outputDir, extRoot: extRoot,
-      quality: $('quality').value,
-      videoFormat: $('videoFormat').value,
-      audioFormat: $('audioFormat').value,
-      clipEnabled: $('clipEnabled').checked,
-      startTime: $('startTime').value,
-      endTime: $('endTime').value
-    };
-    persistLastOptions(opts);
-
-    engine.download(opts, {
-      onProgress: function (pct, status) {
-        if (pct !== null && pct !== undefined) $('progressBar').style.width = pct + '%';
-        if (status) $('statusMsg').textContent = status;
-      },
-      onProc: function (p) { state.proc = p; }
-    }, function (err, res) {
-      state.proc = null;
-      setBusy(false);
-      if (err) { $('progressWrap').classList.add('hidden'); showError(err.message); return; }
-
-      $('statusMsg').textContent = 'Importing into project…';
-      evalJSX('sg_importToBin(' + jsStr(res.path) + ', ' + jsStr(state.settings.binName) + ')', function (importRes) {
-        $('progressWrap').classList.add('hidden');
-        if (importRes === 'OK') {
-          $('successText').textContent = 'Imported into "' + state.settings.binName + '" — ' + res.size;
-          $('successBox').classList.remove('hidden');
-        } else {
-          showError('Downloaded to:\n' + res.path + '\n\nbut import failed:\n' + (importRes || 'unknown') + '\n\nDrag it in manually.');
-        }
+  list.forEach(function (u) {
+    var kind = urls.classify(u);
+    if (kind === 'playlist' || kind === 'channel') {
+      $('topStatus').textContent = 'Expanding playlist…';
+      metadata.expandPlaylist(u, extRoot, function (err, entries) {
+        if (err || !entries.length) { $('topStatus').textContent = 'Playlist error: ' + (err ? err.message : 'empty'); done(); return; }
+        if (entries.length >= 50 && !window.confirm('This playlist has ' + entries.length + ' videos. Add all of them?')) { done(); return; }
+        entries.forEach(function (en) {
+          toAdd.push({ url: en.url, opts: { quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat, clipEnabled: false } });
+        });
+        done();
       });
-    });
+    } else {
+      toAdd.push({ url: u, opts: opts });
+      done();
+    }
   });
 });
+$('cancelAllBtn').addEventListener('click', function () { queue.cancelAll(); });
+$('clearDoneBtn').addEventListener('click', function () { queue.clearDone(); });
 
 // ---------- Init ----------
 applySettingsToUI();
+renderQueue(queue.getItems());

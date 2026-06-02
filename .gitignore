@@ -1,0 +1,14 @@
+# Bundled binaries — placed by the installer, never committed (large, license-bound)
+panel/bin/
+*.zip
+
+# Node
+node_modules/
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/

@@ -1,0 +1,10 @@
+{
+  "name": "smart-grab-premiere",
+  "version": "1.0.0",
+  "description": "Premiere Pro panel: download video via yt-dlp/ffmpeg and import into the project panel.",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

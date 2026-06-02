@@ -4,6 +4,8 @@ var extRoot = cs.getSystemPath(SystemPath.EXTENSION);
 var engine = require(extRoot + '/js/downloadEngine.js');
 var settingsMod = require(extRoot + '/js/settings.js');
 var binaries = require(extRoot + '/js/binaries.js');
+var clipboard = require(extRoot + '/js/clipboard.js');
+var editKeys = require(extRoot + '/js/editKeys.js');
 
 var $ = function (id) { return document.getElementById(id); };
 var state = { settings: settingsMod.load(), proc: null };
@@ -28,10 +30,40 @@ $('clipEnabled').addEventListener('change', function () {
   $('clipRow').classList.toggle('hidden', !this.checked);
 });
 
-// ---------- Paste ----------
+// ---------- Paste button (reads the system clipboard via Node — see clipboard.js) ----------
 $('pasteBtn').addEventListener('click', function () {
-  if (navigator.clipboard && navigator.clipboard.readText) {
-    navigator.clipboard.readText().then(function (t) { if (t) $('url').value = t.trim(); });
+  var t = clipboard.read();
+  if (t) $('url').value = t.replace(/^\s+|\s+$/g, '');
+});
+
+// ---------- Keyboard edit shortcuts ----------
+// CEF in a CEP panel does NOT wire the macOS Edit accelerators (Cmd+V/C/X/A) for text
+// inputs, so we handle them ourselves using the Node-backed clipboard.
+document.addEventListener('keydown', function (e) {
+  var action = editKeys.editAction(e);
+  if (!action) return;
+  var el = document.activeElement;
+  if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA')) return;
+  var start = el.selectionStart == null ? el.value.length : el.selectionStart;
+  var end = el.selectionEnd == null ? el.value.length : el.selectionEnd;
+
+  if (action === 'selectAll') { e.preventDefault(); el.select(); return; }
+  if (action === 'copy') { e.preventDefault(); clipboard.write(el.value.slice(start, end)); return; }
+  if (el.readOnly) return; // paste/cut are not valid on read-only fields
+  if (action === 'paste') {
+    e.preventDefault();
+    var clip = clipboard.read().replace(/[\r\n]+/g, ''); // single-line inputs
+    if (clip) {
+      var r = editKeys.applyPaste(el.value, start, end, clip);
+      el.value = r.value;
+      el.setSelectionRange(r.caret, r.caret);
+    }
+  } else if (action === 'cut') {
+    e.preventDefault();
+    var c = editKeys.applyCut(el.value, start, end);
+    clipboard.write(c.removed);
+    el.value = c.value;
+    el.setSelectionRange(c.caret, c.caret);
   }
 });
 

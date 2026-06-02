@@ -20,6 +20,8 @@ input[type=text], select {
   border: 1px solid var(--border); border-radius: 6px; padding: 7px 8px; font-size: 12px;
 }
 input[readonly] { color: var(--text2); }
+/* body sets user-select:none for the panel chrome; keep editable fields selectable */
+input[type=text], textarea { -webkit-user-select: text; user-select: text; }
 button {
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px 12px; font-size: 12px; cursor: pointer;

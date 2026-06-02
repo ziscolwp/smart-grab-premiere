@@ -11,9 +11,9 @@ auto-imports it into the current project, inside a "Downloaded Video" bin.
 If macOS blocks the script: right-click ▸ Open the first time.
 
 ## Use
-1. Paste a video URL.
-2. Pick quality / format (and an optional clip range).
-3. **Download & Import** — the file lands in the project panel.
+1. Paste one or more video URLs (one per line) — or a playlist/channel link.
+2. Pick quality / format. For a single video, tick **Clip** and drag the slider to trim.
+3. **Add to Queue** — items show their title + length and download one at a time into the project.
 
 ## Settings (⚙)
 - **Sync to current project** — saves into a "Downloaded Video" folder next to your `.prproj`.

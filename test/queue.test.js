@@ -73,6 +73,30 @@ test('cancel kills the active process and advances', () => {
   assert.strictEqual(items.filter(i => i.status === 'downloading').length, 1);
 });
 
+test('multi-file results (e.g. multi-video tweet) import every path', () => {
+  const imported = [];
+  const q = createQueue(baseDeps({
+    importFile: (path, cb) => { imported.push(path); cb(null); },
+    download: (opts, cbs, done) => done(null, { path: '/out/a.mp4', paths: ['/out/a.mp4', '/out/b.mp4'], size: '2 videos · 3 MB' })
+  }));
+  q.addUrls([{ url: 'a', opts: {} }]);
+  assert.deepStrictEqual(imported, ['/out/a.mp4', '/out/b.mp4']);
+  const it = q.getItems()[0];
+  assert.strictEqual(it.status, 'done');
+  assert.strictEqual(it.statusMsg, '2 videos · 3 MB');
+});
+
+test('multi-file import failure surfaces the first error but still finishes', () => {
+  let n = 0;
+  const q = createQueue(baseDeps({
+    importFile: (path, cb) => { n++; cb(n === 1 ? new Error('bin missing') : null); },
+    download: (opts, cbs, done) => done(null, { path: '/a', paths: ['/a', '/b'], size: '' })
+  }));
+  q.addUrls([{ url: 'a', opts: {} }]);
+  assert.strictEqual(n, 2); // both imports attempted
+  assert.ok(q.getItems()[0].statusMsg.indexOf('bin missing') !== -1);
+});
+
 test('remove drops a non-active item; clearDone strips terminals', () => {
   const q = createQueue(baseDeps());
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);

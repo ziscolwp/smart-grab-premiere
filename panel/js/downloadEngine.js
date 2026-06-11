@@ -126,11 +126,22 @@ function download(opts, callbacks, cb) {
     });
   }
 
-  function failUnmergeable(n) {
+  function failUnmergeable(entries) {
     cleanup();
-    var err = new Error('yt-dlp left ' + n + ' files that could not be combined into one video.');
-    err.hint = 'Re-run the installer to refresh ffmpeg, then retry this item.';
+    var err = new Error('yt-dlp left ' + entries.length + ' files that could not be combined into one video.');
+    err.hint = 'Retry the item; if it keeps happening, copy the error and report it.';
+    err.raw = entries.map(function (e) {
+      return e.name + ' (video: ' + (e.vcodec || 'none') + ', audio: ' + (e.acodec || 'none') + ')';
+    }).join('\n');
     cb(err);
+  }
+
+  function probeAllFiles(files, done) {
+    var entries = [];
+    (function next(i) {
+      if (i >= files.length) return done(entries);
+      probeStreams(files[i], function (e) { entries.push(e); next(i + 1); });
+    })(0);
   }
 
   function postProcess(sectionsUsed) {
@@ -142,40 +153,70 @@ function download(opts, callbacks, cb) {
     } catch (e) { cleanup(); return cb(e); }
 
     if (files.length === 0) { cleanup(); return cb(new Error('Download failed — no output file.')); }
-    if (files.length === 1) return proceedSingle(files[0], sectionsUsed);
+    if (files.length === 1) return processMany(files, sectionsUsed);
 
-    // yt-dlp exited 0 but left separate streams: its merge step was silently
-    // skipped (it decided ffmpeg wasn't usable). Merge them ourselves —
-    // stream copy, so this costs seconds, not a re-encode.
-    if (files.length === 2 && !audioOnly) {
-      onProgress(null, 'Merging streams...');
-      return probeStreams(files[0], function (a) {
-        probeStreams(files[1], function (b) {
-          var pair = L.pairLeftoverStreams([a, b]);
-          if (!pair) return failUnmergeable(2);
-          var container = opts.videoFormat === 'mkv' ? 'mkv' : 'mp4';
-          var vStem = path.basename(pair.video.name, path.extname(pair.video.name));
-          var outName = L.stripFormatSuffix(vStem) + '.' + container;
-          if (outName === pair.video.name || outName === pair.audio.name) outName = 'merged-' + outName;
-          var margs = L.selfMergeArgs(
-            path.join(tmp, pair.video.name), path.join(tmp, pair.audio.name),
-            pair.audio.acodec, container, path.join(tmp, outName)
-          );
-          run(ffmpeg, margs, env, null, onProc, function (merr) {
-            if (merr) { cleanup(); return cb(merr); }
-            try {
-              fs.rmSync(path.join(tmp, pair.video.name));
-              fs.rmSync(path.join(tmp, pair.audio.name));
-            } catch (e) { cleanup(); return cb(e); }
-            proceedSingle(outName, sectionsUsed);
-          });
+    // More than one file. Probe to find out what they are:
+    //  - one video-only + one audio-only => yt-dlp's merge silently skipped
+    //    (it decided ffmpeg wasn't usable) => merge them ourselves.
+    //  - several self-contained videos => a multi-media post (e.g. a tweet
+    //    with 2-4 videos) => keep them ALL; each gets imported.
+    probeAllFiles(files, function (entries) {
+      var pair = audioOnly ? null : L.pairLeftoverStreams(entries);
+      if (pair) {
+        onProgress(null, 'Merging streams...');
+        var container = opts.videoFormat === 'mkv' ? 'mkv' : 'mp4';
+        var vStem = path.basename(pair.video.name, path.extname(pair.video.name));
+        var outName = L.stripFormatSuffix(vStem) + '.' + container;
+        if (outName === pair.video.name || outName === pair.audio.name) outName = 'merged-' + outName;
+        var margs = L.selfMergeArgs(
+          path.join(tmp, pair.video.name), path.join(tmp, pair.audio.name),
+          pair.audio.acodec, container, path.join(tmp, outName)
+        );
+        run(ffmpeg, margs, env, null, onProc, function (merr) {
+          if (merr) { cleanup(); return cb(merr); }
+          try {
+            fs.rmSync(path.join(tmp, pair.video.name));
+            fs.rmSync(path.join(tmp, pair.audio.name));
+          } catch (e) { cleanup(); return cb(e); }
+          processMany([outName], sectionsUsed);
         });
+        return;
+      }
+      var allSelfContained = entries.every(function (e) {
+        return audioOnly ? (e.acodec && !e.vcodec) : !!e.vcodec;
       });
-    }
-    failUnmergeable(files.length);
+      if (allSelfContained) return processMany(files, sectionsUsed);
+      failUnmergeable(entries);
+    });
   }
 
-  function proceedSingle(name, sectionsUsed) {
+  // Post-process each file in turn, then report all of them at once.
+  function processMany(names, sectionsUsed) {
+    var results = [];
+    (function next(i) {
+      if (i >= names.length) {
+        var bytes = 0;
+        for (var j = 0; j < results.length; j++) bytes += results[j].bytes;
+        var sizeStr = (bytes ? (bytes / (1024 * 1024)).toFixed(1) + ' MB' : '');
+        if (results.length > 1) sizeStr = results.length + ' videos · ' + sizeStr;
+        cleanup();
+        onProgress(100, 'Done!');
+        return cb(null, {
+          path: results[0].path,
+          paths: results.map(function (r) { return r.path; }),
+          size: sizeStr
+        });
+      }
+      if (names.length > 1) onProgress(null, 'Processing ' + (i + 1) + '/' + names.length + '...');
+      processOne(names[i], sectionsUsed, function (err, r) {
+        if (err) { cleanup(); return cb(err); }
+        results.push(r);
+        next(i + 1);
+      });
+    })(0);
+  }
+
+  function processOne(name, sectionsUsed, done) {
     var src = path.join(tmp, name);
     var stem = L.stripFormatSuffix(path.basename(name, path.extname(name)));
     var srcExt = path.extname(name).replace('.', '').toLowerCase();
@@ -185,14 +226,9 @@ function download(opts, callbacks, cb) {
     try { if (fs.existsSync(dest)) fs.rmSync(dest); } catch (e) {}
 
     function finish() {
-      var sizeStr = '';
-      try {
-        var bytes = fs.statSync(dest).size;
-        sizeStr = (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-      } catch (e) {}
-      cleanup();
-      onProgress(100, 'Done!');
-      cb(null, { path: dest, size: sizeStr });
+      var bytes = 0;
+      try { bytes = fs.statSync(dest).size; } catch (e) {}
+      done(null, { path: dest, bytes: bytes });
     }
 
     function applyAction(act) {
@@ -201,13 +237,13 @@ function download(opts, callbacks, cb) {
         catch (e) {
           // cross-device fallback
           try { fs.copyFileSync(src, dest); fs.rmSync(src); return finish(); }
-          catch (e2) { cleanup(); return cb(e2); }
+          catch (e2) { return done(e2); }
         }
       }
       // ffmpeg action
       onProgress(null, act.note || 'Processing...');
       run(ffmpeg, act.args, env, null, onProc, function (ferr) {
-        if (ferr) { cleanup(); return cb(ferr); }
+        if (ferr) return done(ferr);
         finish();
       });
     }

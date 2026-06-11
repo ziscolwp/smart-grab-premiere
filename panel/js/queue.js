@@ -71,13 +71,24 @@ function createQueue(deps) {
           return;
         }
         update(id, { statusMsg: 'Importing…', progress: 100 });
-        deps.importFile(res.path, function (impErr) {
-          setStatus(id, 'done', {
-            outputPath: res.path,
-            statusMsg: impErr ? ('Downloaded (import failed): ' + impErr.message) : (res.size || 'Done')
+        // A single post can yield several media files (e.g. a tweet with
+        // multiple videos) — import every one of them.
+        var paths = res.paths || [res.path];
+        var pi = 0, firstImpErr = null;
+        (function importNext() {
+          if (pi >= paths.length) {
+            setStatus(id, 'done', {
+              outputPath: res.path,
+              statusMsg: firstImpErr ? ('Downloaded (import failed): ' + firstImpErr.message) : (res.size || 'Done')
+            });
+            pumpDownloads();
+            return;
+          }
+          deps.importFile(paths[pi++], function (impErr) {
+            if (impErr && !firstImpErr) firstImpErr = impErr;
+            importNext();
           });
-          pumpDownloads();
-        });
+        })();
       });
     });
   }

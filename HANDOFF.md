@@ -1,5 +1,10 @@
 # HANDOFF — Smart Grab v3: make it a product
 
+> **STATUS: EXECUTED 2026-06-12.** All four phases shipped; v3.0.0 is tagged on
+> GitHub with both release zips. The one thing no session can do from this Mac
+> remains open: running the 10 steps in `docs/windows-test-checklist.md` on real
+> Windows hardware. Kept for reference — do not re-execute.
+
 > **For the next Claude session.** Read this whole file before touching code.
 > Mission: take Smart Grab from "works great on the developer's Mac" to a
 > **product-grade tool a non-technical editor can install in two clicks** on

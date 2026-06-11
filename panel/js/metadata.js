@@ -1,40 +1,62 @@
 // panel/js/metadata.js
-// Title/duration + playlist expansion via yt-dlp (per-URL invocations for clean mapping).
+// Title/duration/thumbnail + playlist expansion via yt-dlp (per-URL invocations for clean mapping).
 var childProcess = require('child_process');
 var binaries = require('./binaries.js');
+
+var INFO_TEMPLATE = '%(title)s\t%(duration)s\t%(thumbnail)s\t%(extractor_key)s\t%(uploader)s';
 
 function firstErrLine(err) {
   var lines = String(err).split(/\r?\n/).filter(function (l) { return l.indexOf('ERROR') !== -1; });
   return lines.length ? lines[lines.length - 1].replace(/^ERROR:\s*/, '') : '';
 }
 
-// cb(err, { title, durationSec })
-function fetchInfo(url, extRoot, cb) {
-  var bin = binaries.resolveBinary('yt-dlp', { extRoot: extRoot });
+function cookieArgs(cookiesBrowser) {
+  if (!cookiesBrowser || cookiesBrowser === 'none') return [];
+  return ['--cookies-from-browser', cookiesBrowser];
+}
+
+// Pure: parse one INFO_TEMPLATE line into the info object (exported for tests).
+function parseInfoLine(line, url) {
+  var parts = String(line || '').split('\t');
+  function val(i) { return (parts[i] && parts[i] !== 'NA') ? parts[i] : null; }
+  var draw = parts[1];
+  return {
+    title: val(0) || url,
+    durationSec: (draw && draw !== 'NA' && !isNaN(parseFloat(draw))) ? Math.round(parseFloat(draw)) : null,
+    thumbnail: /^https?:/.test(val(2) || '') ? parts[2] : null,
+    extractor: val(3),
+    uploader: val(4)
+  };
+}
+
+// opts: { extRoot, cookiesBrowser }. cb(err, { title, durationSec, thumbnail, extractor, uploader })
+function fetchInfo(url, opts, cb) {
+  opts = opts || {};
+  var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
-  var p = childProcess.spawn(bin, ['--no-playlist', '--print', '%(title)s\t%(duration)s', url],
-    { env: binaries.augmentedEnv(process.env) });
+  var args = ['--no-playlist', '--no-warnings', '--print', INFO_TEMPLATE]
+    .concat(cookieArgs(opts.cookiesBrowser));
+  args.push(url);
+  var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';
   p.stdout.on('data', function (d) { out += d.toString(); });
   p.stderr.on('data', function (d) { err += d.toString(); });
   p.on('error', cb);
   p.on('close', function (code) {
     if (code !== 0) return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
-    var line = (out.split(/\r?\n/)[0] || '');
-    var parts = line.split('\t');
-    var title = (parts[0] && parts[0] !== 'NA') ? parts[0] : url;
-    var draw = parts[1];
-    var durationSec = (draw && draw !== 'NA' && !isNaN(parseFloat(draw))) ? Math.round(parseFloat(draw)) : null;
-    cb(null, { title: title, durationSec: durationSec });
+    cb(null, parseInfoLine(out.split(/\r?\n/)[0] || '', url));
   });
 }
 
-// cb(err, [{ id, title, url }])
-function expandPlaylist(url, extRoot, cb) {
-  var bin = binaries.resolveBinary('yt-dlp', { extRoot: extRoot });
+// opts: { extRoot, cookiesBrowser }. cb(err, [{ id, title, url }])
+function expandPlaylist(url, opts, cb) {
+  opts = opts || {};
+  var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
-  var p = childProcess.spawn(bin, ['--flat-playlist', '--print', '%(id)s\t%(title)s\t%(url)s', url],
-    { env: binaries.augmentedEnv(process.env) });
+  var args = ['--flat-playlist', '--no-warnings', '--print', '%(id)s\t%(title)s\t%(url)s']
+    .concat(cookieArgs(opts.cookiesBrowser));
+  args.push(url);
+  var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';
   p.stdout.on('data', function (d) { out += d.toString(); });
   p.stderr.on('data', function (d) { err += d.toString(); });
@@ -52,4 +74,9 @@ function expandPlaylist(url, extRoot, cb) {
   });
 }
 
-module.exports = { fetchInfo: fetchInfo, expandPlaylist: expandPlaylist };
+module.exports = {
+  fetchInfo: fetchInfo,
+  expandPlaylist: expandPlaylist,
+  parseInfoLine: parseInfoLine,
+  cookieArgs: cookieArgs
+};

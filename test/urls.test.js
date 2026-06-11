@@ -29,3 +29,29 @@ test('classify: non-youtube http => video; non-url => invalid', () => {
   assert.strictEqual(U.classify('https://vimeo.com/123'), 'video');
   assert.strictEqual(U.classify('ftp://x'), 'invalid');
 });
+
+test('source identifies the major sites', () => {
+  assert.strictEqual(U.source('https://www.youtube.com/watch?v=a').key, 'youtube');
+  assert.strictEqual(U.source('https://www.instagram.com/reel/abc/').key, 'instagram');
+  assert.strictEqual(U.source('https://x.com/user/status/1').key, 'twitter');
+  assert.strictEqual(U.source('https://twitter.com/user/status/1').key, 'twitter');
+  assert.strictEqual(U.source('https://www.reddit.com/r/videos/comments/x/').key, 'reddit');
+  assert.strictEqual(U.source('https://www.tiktok.com/@u/video/1').key, 'tiktok');
+  assert.strictEqual(U.source('https://www.loom.com/share/abc').key, 'loom');
+  assert.strictEqual(U.source('https://vimeo.com/123').key, 'vimeo');
+  assert.strictEqual(U.source('https://www.twitch.tv/videos/1').key, 'twitch');
+  assert.strictEqual(U.source('https://fb.watch/abc/').key, 'facebook');
+});
+test('source falls back to generic web', () => {
+  assert.strictEqual(U.source('https://example.com/video.mp4').key, 'web');
+});
+test('source does not mistake xyz domains containing x for twitter', () => {
+  assert.strictEqual(U.source('https://example.xyz/x.com/page').key, 'web');
+});
+
+test('usuallyNeedsCookies flags login-walled sites', () => {
+  assert.strictEqual(U.usuallyNeedsCookies('instagram'), true);
+  assert.strictEqual(U.usuallyNeedsCookies('twitter'), true);
+  assert.strictEqual(U.usuallyNeedsCookies('youtube'), false);
+  assert.strictEqual(U.usuallyNeedsCookies('loom'), false);
+});

@@ -33,9 +33,13 @@ Requires Premiere Pro 2021 (15.0) or newer.
 
 ## Settings (⚙)
 - **Where to save** — next to your `.prproj` (synced per project) or a fixed folder.
-- **Browser cookies** — needed for Instagram, X, and private/age-gated videos.
-  Pick a browser where you're logged in. *Windows note:* Chrome cookies can't be
-  read there (Chrome encryption) — use Firefox. Close the browser before downloading.
+- **Sign-in cookies** — needed for Instagram, X, and private/age-gated videos.
+  Two ways:
+  - *From a browser* — pick one you're logged into (close it before downloading;
+    on Windows, Chrome cookies can't be read — use Firefox).
+  - *From a cookies.txt file* — **the most reliable option.** Export it with the
+    "Get cookies.txt LOCALLY" browser extension while logged in, then point the
+    panel at the file. Works on every platform and survives browser updates.
 - **Trim mode** — *Fast* downloads only the clip (cuts on keyframes, may start a
   moment early); *Precise* downloads everything and trims exactly. Fast falls back
   automatically when a site doesn't support it.
@@ -47,7 +51,12 @@ The panel translates common failures into plain English with a fix hint
 (sign-in walls, rate limits, geo blocks, site breakage…). The two universal fixes:
 
 1. **Update yt-dlp** (Settings) — sites change constantly; the nightly build keeps up.
-2. **Set browser cookies** (Settings) — for anything that needs a login.
+2. **Set sign-in cookies** (Settings) — for anything that needs a login.
+
+**What can't be grabbed:** sites that hide the video behind their own JavaScript
+player or a one-time token (many movie/streaming aggregators) serve a page with
+no real video in it — there's nothing for any downloader to find, and cookies
+don't help. Copy the link to the *actual* video where possible.
 
 ## Development
 - `dev-link.command` symlinks the panel for live editing (macOS).

@@ -15,3 +15,6 @@ npm-debug.log*
 
 # Tooling
 .code-review-graph/
+
+# Release artifacts
+dist/

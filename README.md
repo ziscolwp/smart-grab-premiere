@@ -6,20 +6,24 @@ auto-imports it into your current project, inside a "Downloaded Video" bin.
 Works with YouTube, Instagram, X/Twitter, TikTok, Reddit, Loom, Vimeo, Twitch,
 Facebook and [over a thousand other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
-## Install
+## Install — two clicks, no terminal, no git
 
-### macOS (Intel & Apple Silicon)
-1. Download/clone this repo.
-2. Double-click **install.command** (fetches binaries, copies the panel, enables CEP).
-   If macOS blocks it: right-click ▸ Open the first time.
+1. Grab the zip for your system from the **[latest release](https://github.com/ziscolwp/smart-grab-premiere/releases/latest)**:
+   `SmartGrab-mac.zip` (Intel & Apple Silicon) or `SmartGrab-win.zip` (Windows 10/11, 64-bit).
+2. Unzip, then run the installer:
+   - **macOS** — right-click **install.command** ▸ Open (the right-click matters
+     the first time; macOS blocks plain double-clicks on downloads).
+   - **Windows** — double-click **install.bat** (if SmartScreen objects:
+     *More info* ▸ *Run anyway*).
 3. Restart Premiere Pro → **Window ▸ Extensions ▸ Smart Grab**.
 
-### Windows (10/11, 64-bit)
-1. Download/clone this repo.
-2. Double-click **install.bat** (fetches `yt-dlp.exe` + `ffmpeg`, copies the panel, enables CEP).
-3. Restart Premiere Pro → **Window ▸ Extensions ▸ Smart Grab**.
+The panel takes care of everything else itself: it downloads its own tools
+(yt-dlp, ffmpeg, ffprobe, deno) on first open with a progress bar, keeps
+yt-dlp fresh automatically, and can re-download anything via **Settings ▸
+Repair downloads** if a file ever goes missing or breaks.
 
 Requires Premiere Pro 2021 (15.0) or newer.
+Developers: clone the repo and see [Development](#development).
 
 ## Use
 1. Paste one or more video links (one per line) — or a whole playlist/channel URL.
@@ -47,7 +51,10 @@ Requires Premiere Pro 2021 (15.0) or newer.
   moment early); *Precise* downloads everything and trims exactly. Fast falls back
   automatically when a site doesn't support it.
 - **Update yt-dlp** — one click, pulls the latest nightly. Run it whenever a site
-  stops working; fixes usually ship within a day.
+  stops working; fixes usually ship within a day. (The panel also refreshes
+  yt-dlp by itself when it's more than two weeks old.)
+- **Repair downloads** — re-downloads every bundled tool (yt-dlp, ffmpeg,
+  ffprobe, deno). The fix for "something is broken and I don't know what".
 
 ## When a download fails
 The panel translates common failures into plain English with a fix hint
@@ -63,7 +70,8 @@ don't help. Copy the link to the *actual* video where possible.
 
 ## Development
 - `dev-link.command` symlinks the panel for live editing (macOS).
-- `npm test` runs the Node logic tests (96 tests, no network needed).
+- `npm test` runs the Node logic tests (no network needed).
+- `npm run package` builds the release zips into `dist/`.
 - All yt-dlp/ffmpeg decisions are pure functions in `panel/js/engineLogic.js`.
 - Research notes on yt-dlp flags: `docs/yt-dlp-notes.md`.
 - Spec: `docs/superpowers/specs/`. Plan: `docs/superpowers/plans/`.

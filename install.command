@@ -8,6 +8,11 @@ DEST="$HOME/Library/Application Support/Adobe/CEP/extensions/SmartGrabPanel"
 BIN="$PANEL_SRC/bin"
 ARCH="$(uname -m)"
 
+# Browser-downloaded zips quarantine everything inside. The user got past
+# Gatekeeper once (right-click ▸ Open) to run this — clear the rest so any
+# re-run is a plain double-click.
+xattr -dr com.apple.quarantine "$SELF_DIR" 2>/dev/null
+
 echo "Installing Smart Grab for Premiere (macOS $ARCH)…"
 mkdir -p "$BIN"
 

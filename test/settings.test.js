@@ -14,6 +14,7 @@ test('load() returns defaults when file is missing', () => {
   assert.strictEqual(s.destinationMode, 'sync');
   assert.strictEqual(s.binName, 'Downloaded Video');
   assert.strictEqual(s.lastQuality, 'fhd');
+  assert.strictEqual(s.proxyUrl, '');
 });
 
 test('save() then load() round-trips and merges over defaults', () => {

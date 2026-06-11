@@ -25,7 +25,7 @@ var clip = { slider: null, durationSec: null };
 function evalJSX(fnCall, cb) { cs.evalScript(fnCall, cb); }
 function jsStr(s) { return JSON.stringify(String(s)); }
 function cookieOpts() {
-  return { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser, cookiesFile: state.settings.cookiesFile };
+  return { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser, cookiesFile: state.settings.cookiesFile, proxyUrl: state.settings.proxyUrl };
 }
 function cookiesActive() {
   return !!state.settings.cookiesFile || (state.settings.cookiesBrowser && state.settings.cookiesBrowser !== 'none');
@@ -250,6 +250,7 @@ function currentOpts(allowClip) {
     audioFormat: $('audioFormat').value,
     cookiesBrowser: state.settings.cookiesBrowser,
     cookiesFile: state.settings.cookiesFile,
+    proxyUrl: state.settings.proxyUrl,
     trimMode: state.settings.trimMode,
     clipEnabled: false
   };
@@ -305,7 +306,7 @@ $('addBtn').addEventListener('click', function () {
         entries.forEach(function (en) {
           toAdd.push({ url: en.url, opts: {
             quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat,
-            cookiesBrowser: opts.cookiesBrowser, cookiesFile: opts.cookiesFile, trimMode: opts.trimMode, clipEnabled: false
+            cookiesBrowser: opts.cookiesBrowser, cookiesFile: opts.cookiesFile, proxyUrl: opts.proxyUrl, trimMode: opts.trimMode, clipEnabled: false
           } });
         });
         done();

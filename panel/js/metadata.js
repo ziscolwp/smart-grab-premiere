@@ -30,13 +30,15 @@ function parseInfoLine(line, url) {
   };
 }
 
-// opts: { extRoot, cookiesBrowser }. cb(err, { title, durationSec, thumbnail, extractor, uploader })
+// opts: { extRoot, cookiesBrowser, cookiesFile, proxyUrl }.
+// cb(err, { title, durationSec, thumbnail, extractor, uploader })
 function fetchInfo(url, opts, cb) {
   opts = opts || {};
   var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
   var args = ['--no-playlist', '--no-warnings', '--print', INFO_TEMPLATE]
-    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
+    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile))
+    .concat(L.proxyArgs(opts.proxyUrl));
   args.push(url);
   var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';
@@ -49,13 +51,14 @@ function fetchInfo(url, opts, cb) {
   });
 }
 
-// opts: { extRoot, cookiesBrowser }. cb(err, [{ id, title, url }])
+// opts: { extRoot, cookiesBrowser, cookiesFile, proxyUrl }. cb(err, [{ id, title, url }])
 function expandPlaylist(url, opts, cb) {
   opts = opts || {};
   var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
   var args = ['--flat-playlist', '--no-warnings', '--print', '%(id)s\t%(title)s\t%(url)s']
-    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
+    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile))
+    .concat(L.proxyArgs(opts.proxyUrl));
   args.push(url);
   var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';

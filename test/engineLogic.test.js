@@ -116,6 +116,23 @@ test('buildYtDlpArgs: referer passed through when set', () => {
   assert.strictEqual(argValue(args, '--referer'), 'https://site.example/');
 });
 
+test('proxyArgs: --proxy when set, nothing otherwise', () => {
+  assert.deepStrictEqual(L.proxyArgs('socks5://127.0.0.1:1080'), ['--proxy', 'socks5://127.0.0.1:1080']);
+  assert.deepStrictEqual(L.proxyArgs('  http://127.0.0.1:8080  '), ['--proxy', 'http://127.0.0.1:8080']);
+  assert.deepStrictEqual(L.proxyArgs(''), []);
+  assert.deepStrictEqual(L.proxyArgs('   '), []);
+  assert.deepStrictEqual(L.proxyArgs(undefined), []);
+});
+
+test('buildYtDlpArgs: proxy passed through when set, absent otherwise', () => {
+  const withP = L.buildYtDlpArgs(
+    { quality: 'fhd', videoFormat: 'mp4Premiere', proxyUrl: 'socks5://127.0.0.1:1080' }, '/t', '/f', 'U'
+  );
+  assert.strictEqual(argValue(withP, '--proxy'), 'socks5://127.0.0.1:1080');
+  const without = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere' }, '/t', '/f', 'U');
+  assert.strictEqual(without.indexOf('--proxy'), -1);
+});
+
 test('buildYtDlpArgs: fast clip adds --download-sections; precise does not', () => {
   const fast = L.buildYtDlpArgs(
     { quality: 'fhd', videoFormat: 'mp4Premiere', clipEnabled: true, startTime: '00:00:10', endTime: '00:01:00' },

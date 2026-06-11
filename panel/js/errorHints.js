@@ -50,7 +50,7 @@ var RULES = [
     hint: 'Paste a full link starting with https://.' },
   { re: /unable to download webpage.*(timed out|timeout|connection|getaddrinfo|network)/i,
     message: 'Network problem while contacting the site.',
-    hint: 'Check your internet connection and retry.' },
+    hint: 'Check your internet connection. If other links work, this site is probably blocked by your ISP or country (e.g. TikTok in India). Browser VPN extensions don\'t cover the panel — use a system-wide VPN app, or set a Proxy URL in Settings.' },
   { re: /no space left/i,
     message: 'Your disk is full.',
     hint: 'Free up space and retry.' },

@@ -35,6 +35,7 @@ function createSettingsView(deps) {
     $('cookiesBrowser').value = (s.cookiesBrowser && s.cookiesBrowser !== 'none') ? s.cookiesBrowser : 'chrome';
     $('cookiesFile').value = s.cookiesFile || '';
     syncCookiesRows();
+    $('proxyUrl').value = s.proxyUrl || '';
     $('trimMode').value = s.trimMode || 'fast';
     $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
     $('updateStatus').textContent = '';
@@ -117,6 +118,7 @@ function createSettingsView(deps) {
     var cmode = $('cookiesMode').value;
     state.settings.cookiesBrowser = cmode === 'browser' ? $('cookiesBrowser').value : 'none';
     state.settings.cookiesFile = cmode === 'file' ? $('cookiesFile').value : '';
+    state.settings.proxyUrl = $('proxyUrl').value.replace(/^\s+|\s+$/g, '');
     state.settings.trimMode = $('trimMode').value;
     settingsMod.save(state.settings);
     if (deps.onSaved) deps.onSaved();

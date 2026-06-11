@@ -38,6 +38,20 @@ test('geo restriction is explained', () => {
   assert.ok(r.message.indexOf('Geo-restricted') !== -1);
 });
 
+test('connection timeout (ISP-blocked site, e.g. TikTok in India) hints at VPN/proxy', () => {
+  // Real stderr from an Indian ISP that DNS-poisons tiktok.com — the
+  // connection to the block server just times out.
+  const r = E.friendly('ERROR: [TikTok] 7106594312292453675: Unable to download webpage: Failed to perform, curl: (28) Connection timed out after 10002 milliseconds.');
+  assert.ok(r.message.indexOf('Network') !== -1 || r.message.indexOf('reach') !== -1);
+  assert.ok(r.hint.indexOf('VPN') !== -1);
+  assert.ok(r.hint.indexOf('Proxy') !== -1);
+});
+
+test('DNS failure (getaddrinfo) maps to the same network hint', () => {
+  const r = E.friendly('ERROR: Unable to download webpage: <urlopen error [Errno 8] getaddrinfo failed>');
+  assert.ok(r.hint.indexOf('VPN') !== -1);
+});
+
 test('unknown errors return null (caller keeps raw text)', () => {
   assert.strictEqual(E.friendly('something completely novel'), null);
   assert.strictEqual(E.friendly(''), null);

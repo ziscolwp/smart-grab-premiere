@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.0 — 2026-06-12
+
+### Added
+- **Proxy URL setting.** Settings ▸ Proxy URL routes every download
+  (and title fetch) through an http/https/socks5 proxy via yt-dlp's
+  `--proxy`. This is the way through ISP/country blocks — e.g. TikTok in
+  India, where ISPs DNS-poison the site and browser VPN extensions don't
+  cover the panel's downloads.
+
+### Changed
+- The "Network problem" error hint now explains ISP/region blocks and
+  points at system-wide VPNs and the new Proxy URL setting, instead of
+  only saying "check your internet connection".
+
 ## 3.0.0 — 2026-06-12
 
 Smart Grab becomes a product: install it with two clicks, and it looks

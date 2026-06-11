@@ -46,6 +46,15 @@ function cookieArgs(cookiesBrowser, cookiesFile) {
   return [];
 }
 
+// Route yt-dlp's traffic through a proxy (http/https/socks5). This is the
+// escape hatch for ISP/region-blocked sites (e.g. TikTok in India): the
+// panel's downloads run outside the browser, so browser-level VPNs never
+// cover them — a proxy URL does.
+function proxyArgs(proxyUrl) {
+  var p = String(proxyUrl || '').replace(/^\s+|\s+$/g, '');
+  return p ? ['--proxy', p] : [];
+}
+
 // One-shot export: read a browser's cookies once and dump them to a Netscape
 // cookies.txt (the yt-dlp FAQ method). yt-dlp needs a URL to run at all, so we
 // give it a trivial page and ignore the extraction result — the cookie jar is
@@ -60,7 +69,7 @@ function cookieExportArgs(browser, destPath) {
 }
 
 // opts: { quality, videoFormat, audioFormat, clipEnabled, startTime, endTime,
-//         trimMode, cookiesBrowser, noPlaylist, platform }
+//         trimMode, cookiesBrowser, cookiesFile, proxyUrl, noPlaylist, platform }
 var PROGRESS_TEMPLATE = 'download:SG|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s';
 
 function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
@@ -88,6 +97,7 @@ function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
   ]);
   if (opts.noPlaylist !== false) args.push('--no-playlist');
   args = args.concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
+  args = args.concat(proxyArgs(opts.proxyUrl));
   if (opts.referer) args.push('--referer', opts.referer);
   if (useSections(opts)) {
     args.push('--download-sections', '*' + (opts.startTime || '0') + '-' + opts.endTime);
@@ -251,6 +261,7 @@ module.exports = {
   videoFormatInfo: videoFormatInfo,
   useSections: useSections,
   cookieArgs: cookieArgs,
+  proxyArgs: proxyArgs,
   cookieExportArgs: cookieExportArgs,
   buildYtDlpArgs: buildYtDlpArgs,
   targetExt: targetExt,

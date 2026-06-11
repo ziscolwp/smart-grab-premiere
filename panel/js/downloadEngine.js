@@ -53,7 +53,7 @@ function probeCodec(ffprobe, file, stream, env, cb) {
 }
 
 // opts: { url, outputDir, quality, videoFormat, audioFormat, clipEnabled, startTime,
-//         endTime, trimMode, cookiesBrowser, noPlaylist, extRoot }
+//         endTime, trimMode, cookiesBrowser, cookiesFile, proxyUrl, noPlaylist, extRoot }
 // callbacks: { onProgress(percent,status), onProc(proc) }
 // cb(err, { path, size })
 function download(opts, callbacks, cb) {

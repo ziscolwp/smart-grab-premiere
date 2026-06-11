@@ -47,6 +47,10 @@ Developers: clone the repo and see [Development](#development).
     and Browse to it — best for YouTube, where a private-window export lasts longest.
   - *From a browser (live)* — reads cookies on every download; quicker to set up
     but more fragile. Same browser caveats as above.
+- **Proxy URL** — routes all downloads through an `http://`, `https://` or
+  `socks5://` proxy. The fix for sites your ISP or country blocks (e.g. TikTok
+  in India): downloads run outside the browser, so browser VPN extensions don't
+  cover them — set a system-wide VPN, or paste your proxy address here.
 - **Trim mode** — *Fast* downloads only the clip (cuts on keyframes, may start a
   moment early); *Precise* downloads everything and trims exactly. Fast falls back
   automatically when a site doesn't support it.
@@ -70,6 +74,14 @@ Those sites show most videos only to logged-in users, so the download
 needs your login too. Settings ▸ Sign-in cookies ▸ *From a cookies.txt
 file* ▸ **Create from browser** does it in one click (close the browser
 first; on Windows use Firefox).
+
+**TikTok (or another site) fails with a network error, but my internet is fine.**
+Your ISP or country is blocking that site — TikTok is banned in India, for
+example, and Indian ISPs redirect it to a block page, so the download times
+out. A VPN browser extension won't help: it only covers the browser, not the
+panel. Either run a **system-wide VPN app** (set to cover all apps, not split
+tunnel), or set **Settings ▸ Proxy URL** to a proxy/VPN address — many VPN
+apps expose a local proxy like `socks5://127.0.0.1:1080` you can paste there.
 
 **My download came in with only audio, or only video.**
 That's a site serving broken split streams. Hit **Retry** on the item —

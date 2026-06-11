@@ -63,10 +63,37 @@ The panel translates common failures into plain English with a fix hint
 1. **Update yt-dlp** (Settings) — sites change constantly; the nightly build keeps up.
 2. **Set sign-in cookies** (Settings) — for anything that needs a login.
 
-**What can't be grabbed:** sites that hide the video behind their own JavaScript
-player or a one-time token (many movie/streaming aggregators) serve a page with
-no real video in it — there's nothing for any downloader to find, and cookies
-don't help. Copy the link to the *actual* video where possible.
+## FAQ
+
+**Why do Instagram/X downloads need "sign-in cookies"?**
+Those sites show most videos only to logged-in users, so the download
+needs your login too. Settings ▸ Sign-in cookies ▸ *From a cookies.txt
+file* ▸ **Create from browser** does it in one click (close the browser
+first; on Windows use Firefox).
+
+**My download came in with only audio, or only video.**
+That's a site serving broken split streams. Hit **Retry** on the item —
+the panel normally detects and merges them itself. If it keeps
+happening, copy the error from the item and
+[report it](https://github.com/ziscolwp/smart-grab-premiere/issues).
+
+**Why does a 4K download spend minutes "Converting…" after it finishes?**
+Sites serve 4K in codecs Premiere edits poorly (VP9/AV1), so **MP4 ·
+edit-ready** converts them to H.264 once, up front. 1080p usually has an
+H.264 source and needs no conversion. Want the untouched original
+instead? Pick **MKV · original** or **MP4 · no re-encode**.
+
+**What can't be grabbed?**
+Sites that hide the video behind their own JavaScript player or a
+one-time token (many movie/streaming aggregators) serve a page with no
+real video in it — there's nothing for any downloader to find, and
+cookies don't help. Copy the link to the *actual* video where possible.
+
+**Do I ever need to update the panel or its tools?**
+Mostly no: the panel refreshes yt-dlp by itself every two weeks, and
+**Settings ▸ Update yt-dlp** forces it today if a site just broke. For
+new panel versions, download the latest release zip and run the
+installer again.
 
 ## Development
 - `dev-link.command` symlinks the panel for live editing (macOS).

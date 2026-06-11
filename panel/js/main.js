@@ -7,6 +7,7 @@ var settingsMod = require(extRoot + '/js/settings.js');
 var binaries = require(extRoot + '/js/binaries.js');
 var setupLogic = require(extRoot + '/js/setupLogic.js');
 var setupBannerMod = require(extRoot + '/js/setupBanner.js');
+var settingsViewMod = require(extRoot + '/js/settingsView.js');
 var clipboard = require(extRoot + '/js/clipboard.js');
 var editKeys = require(extRoot + '/js/editKeys.js');
 var timecode = require(extRoot + '/js/timecode.js');
@@ -100,10 +101,9 @@ var setupBanner = setupBannerMod.createSetupBanner({
   extRoot: extRoot
 });
 
-// ---------- View switching ----------
-$('settingsBtn').addEventListener('click', showSettings);
-$('destChange').addEventListener('click', function (e) { e.preventDefault(); showSettings(); });
-$('backBtn').addEventListener('click', function () { $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden'); });
+// ---------- View switching (settings screen lives in settingsView.js) ----------
+$('settingsBtn').addEventListener('click', function () { settingsView.show(); });
+$('destChange').addEventListener('click', function (e) { e.preventDefault(); settingsView.show(); });
 
 // ---------- Quality => format toggle ----------
 $('quality').addEventListener('change', function () {
@@ -229,96 +229,18 @@ function applySettingsToUI() {
     ? 'Saving to "' + s.binName + '" next to the project'
     : 'Saving to ' + (s.customFolder || 'custom folder');
 }
-function syncCookiesRows() {
-  var mode = $('cookiesMode').value;
-  $('cookiesBrowserRow').classList.toggle('hidden', mode !== 'browser');
-  $('cookiesFileRow').classList.toggle('hidden', mode !== 'file');
-}
-function showSettings() {
-  var s = state.settings;
-  var radios = document.getElementsByName('mode');
-  for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === s.destinationMode);
-  $('customFolder').value = s.customFolder || '';
-  $('binName').value = s.binName;
-  $('cookiesMode').value = s.cookiesFile ? 'file' : (s.cookiesBrowser && s.cookiesBrowser !== 'none' ? 'browser' : 'none');
-  $('cookiesBrowser').value = (s.cookiesBrowser && s.cookiesBrowser !== 'none') ? s.cookiesBrowser : 'chrome';
-  $('cookiesFile').value = s.cookiesFile || '';
-  syncCookiesRows();
-  $('trimMode').value = s.trimMode || 'fast';
-  $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
-  $('updateStatus').textContent = '';
-  $('cookiesFileStatus').textContent = '';
-  $('mainView').classList.add('hidden'); $('settingsView').classList.remove('hidden');
-}
-(function wireSettings() {
-  var radios = document.getElementsByName('mode');
-  for (var i = 0; i < radios.length; i++) {
-    radios[i].addEventListener('change', function () { $('customRow').classList.toggle('hidden', this.value !== 'custom'); });
-  }
-  $('cookiesMode').addEventListener('change', syncCookiesRows);
-  $('exportCookiesBtn').addEventListener('click', function () {
-    var browser = $('exportBrowser').value;
-    var dest = require('path').join(settingsMod.DIR, 'cookies.txt');
-    $('cookiesFileStatus').textContent = 'Reading ' + browser + ' cookies… (close the browser if this fails)';
-    $('exportCookiesBtn').disabled = true;
-    metadata.exportCookies({ extRoot: extRoot, browser: browser, destPath: dest }, function (err, path) {
-      $('exportCookiesBtn').disabled = false;
-      if (err) { $('cookiesFileStatus').textContent = 'Could not read cookies: ' + err.message; return; }
-      $('cookiesFile').value = path;
-      $('cookiesFileStatus').textContent = '✓ Cookies file created — hit Save below.';
-    });
-  });
-  $('chooseCookiesBtn').addEventListener('click', function () {
-    evalJSX('sg_pickFile()', function (res) {
-      if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('cookiesFile').value = res;
-    });
-  });
-  $('clearCookiesBtn').addEventListener('click', function () { $('cookiesFile').value = ''; $('cookiesFileStatus').textContent = ''; });
-  $('chooseFolderBtn').addEventListener('click', function () {
-    evalJSX('sg_pickFolder()', function (res) {
-      if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('customFolder').value = res;
-    });
-  });
-  $('updateYtdlpBtn').addEventListener('click', function () {
-    $('updateStatus').textContent = 'Updating yt-dlp…'; $('updateYtdlpBtn').disabled = true;
-    binaries.updateYtDlp(function (err, dest) {
-      $('updateYtdlpBtn').disabled = false;
-      $('updateStatus').textContent = err ? ('Update failed: ' + err.message) : 'Updated ✓';
-      if (!err) {
-        state.settings.ytDlpLastUpdate = Date.now();
-        settingsMod.save(state.settings);
-      }
-    });
-  });
-  $('repairBtn').addEventListener('click', function () {
-    $('repairBtn').disabled = true; $('updateYtdlpBtn').disabled = true;
-    binaries.repairAll(extRoot, function (p) {
-      $('updateStatus').textContent = 'Downloading ' + p.label + ' (' + p.index + ' of ' + p.total + ')…';
-    }, function (err, result) {
-      $('repairBtn').disabled = false; $('updateYtdlpBtn').disabled = false;
-      $('updateStatus').textContent = err ? err.message : 'All components reinstalled ✓';
-      if (result && result.installed.indexOf('yt-dlp') !== -1) {
-        state.settings.ytDlpLastUpdate = Date.now();
-        settingsMod.save(state.settings);
-      }
-    });
-  });
-  $('saveSettingsBtn').addEventListener('click', function () {
-    var mode = 'sync', radios2 = document.getElementsByName('mode');
-    for (var j = 0; j < radios2.length; j++) if (radios2[j].checked) mode = radios2[j].value;
-    state.settings.destinationMode = mode;
-    state.settings.customFolder = $('customFolder').value;
-    state.settings.binName = $('binName').value || 'Downloaded Video';
-    var cmode = $('cookiesMode').value;
-    state.settings.cookiesBrowser = cmode === 'browser' ? $('cookiesBrowser').value : 'none';
-    state.settings.cookiesFile = cmode === 'file' ? $('cookiesFile').value : '';
-    state.settings.trimMode = $('trimMode').value;
-    settingsMod.save(state.settings);
-    applySettingsToUI();
-    updateUrlMeta();
-    $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden');
-  });
-})();
+var settingsView = settingsViewMod.createSettingsView({
+  doc: document,
+  $: $,
+  state: state,
+  settingsMod: settingsMod,
+  binaries: binaries,
+  metadata: metadata,
+  extRoot: extRoot,
+  cs: cs,
+  evalJSX: evalJSX,
+  onSaved: function () { applySettingsToUI(); updateUrlMeta(); }
+});
 
 // ---------- Build per-item options snapshot ----------
 function currentOpts(allowClip) {

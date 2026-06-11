@@ -159,7 +159,7 @@ function download(opts, callbacks, cb) {
         }
       }
       // ffmpeg action
-      onProgress(null, 'Processing...');
+      onProgress(null, act.note || 'Processing...');
       run(ffmpeg, act.args, env, null, onProc, function (ferr) {
         if (ferr) { cleanup(); return cb(ferr); }
         finish();

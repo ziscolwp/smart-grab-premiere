@@ -103,28 +103,44 @@ function choosePostProcess(p, src, dest) {
 
   if (p.clipEnabled && p.endTime && !p.sectionDownloaded) {
     var ff = ['-y', '-ss', p.startTime, '-to', p.endTime, '-i', src];
+    var note;
     if (p.needsReencode) {
       ff = ff.concat(['-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart']);
+      note = 'Trimming + converting…';
     } else {
       ff = ff.concat(['-c', 'copy']);
+      note = 'Trimming clip…';
     }
     ff.push(dest);
-    return { action: 'ffmpeg', args: ff };
+    return { action: 'ffmpeg', note: note, args: ff };
   }
 
   if (p.needsReencode) {
-    if (p.vcodec === 'h264' && p.acodec === 'aac' && p.tgtExt === 'mp4' && p.srcExt === 'mp4') {
-      return { action: 'move' };
-    }
-    if (p.vcodec === 'h264' && p.acodec === 'aac') {
+    // Per-stream decisions: only convert what Premiere can't take. An absent
+    // audio stream (acodec '') counts as fine — "-c copy" just carries video.
+    var videoOk = p.vcodec === 'h264';
+    var audioOk = !p.acodec || p.acodec === 'aac';
+    if (videoOk && audioOk) {
+      if (p.tgtExt === 'mp4' && p.srcExt === 'mp4') return { action: 'move' };
       // Right codecs, wrong container (e.g. mp4 -> mov): lossless remux.
-      return { action: 'ffmpeg', args: ['-y', '-i', src, '-c', 'copy', '-movflags', '+faststart', dest] };
+      return { action: 'ffmpeg', note: 'Repackaging (no re-encode)…',
+               args: ['-y', '-i', src, '-c', 'copy', '-movflags', '+faststart', dest] };
     }
-    return { action: 'ffmpeg', args: ['-y', '-i', src, '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', dest] };
+    if (videoOk) {
+      return { action: 'ffmpeg', note: 'Converting audio only (video copied)…',
+               args: ['-y', '-i', src, '-c:v', 'copy', '-c:a', 'aac', '-movflags', '+faststart', dest] };
+    }
+    if (p.acodec === 'aac') {
+      return { action: 'ffmpeg', note: 'Converting video (audio copied)…',
+               args: ['-y', '-i', src, '-c:v', 'libx264', '-c:a', 'copy', '-movflags', '+faststart', dest] };
+    }
+    return { action: 'ffmpeg', note: 'Converting for editing…',
+             args: ['-y', '-i', src, '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', dest] };
   }
 
   if (p.srcExt === p.tgtExt) return { action: 'move' };
-  return { action: 'ffmpeg', args: ['-y', '-i', src, '-c', 'copy', dest] };
+  return { action: 'ffmpeg', note: 'Repackaging (no re-encode)…',
+           args: ['-y', '-i', src, '-c', 'copy', dest] };
 }
 
 // Parses yt-dlp progress output. Primary path is our machine-readable

@@ -136,11 +136,10 @@ test('choosePostProcess: local clip with reencode format', () => {
     { clipEnabled: true, startTime: '00:00:01', endTime: '00:00:09', needsReencode: true },
     '/s.mkv', '/d.mp4'
   );
-  assert.deepStrictEqual(r, {
-    action: 'ffmpeg',
-    args: ['-y', '-ss', '00:00:01', '-to', '00:00:09', '-i', '/s.mkv',
-           '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', '/d.mp4']
-  });
+  assert.strictEqual(r.action, 'ffmpeg');
+  assert.deepStrictEqual(r.args,
+    ['-y', '-ss', '00:00:01', '-to', '00:00:09', '-i', '/s.mkv',
+     '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', '/d.mp4']);
 });
 
 test('choosePostProcess: local clip without reencode copies streams', () => {
@@ -175,21 +174,47 @@ test('choosePostProcess: right codecs wrong container => lossless remux', () => 
     { needsReencode: true, srcExt: 'mp4', tgtExt: 'mov', vcodec: 'h264', acodec: 'aac' },
     '/s.mp4', '/d.mov'
   );
-  assert.deepStrictEqual(r, {
-    action: 'ffmpeg',
-    args: ['-y', '-i', '/s.mp4', '-c', 'copy', '-movflags', '+faststart', '/d.mov']
-  });
+  assert.strictEqual(r.action, 'ffmpeg');
+  assert.deepStrictEqual(r.args, ['-y', '-i', '/s.mp4', '-c', 'copy', '-movflags', '+faststart', '/d.mov']);
 });
 
-test('choosePostProcess: reencode when codecs differ', () => {
+test('choosePostProcess: both streams wrong => full re-encode', () => {
   const r = L.choosePostProcess(
     { needsReencode: true, srcExt: 'webm', tgtExt: 'mp4', vcodec: 'vp9', acodec: 'opus' },
     '/s.webm', '/d.mp4'
   );
-  assert.deepStrictEqual(r, {
-    action: 'ffmpeg',
-    args: ['-y', '-i', '/s.webm', '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', '/d.mp4']
-  });
+  assert.strictEqual(r.action, 'ffmpeg');
+  assert.deepStrictEqual(r.args,
+    ['-y', '-i', '/s.webm', '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', '/d.mp4']);
+});
+
+test('choosePostProcess: good video + opus audio => convert audio only', () => {
+  const r = L.choosePostProcess(
+    { needsReencode: true, srcExt: 'mp4', tgtExt: 'mp4', vcodec: 'h264', acodec: 'opus' },
+    '/s.mp4', '/d.mp4'
+  );
+  assert.deepStrictEqual(r.args,
+    ['-y', '-i', '/s.mp4', '-c:v', 'copy', '-c:a', 'aac', '-movflags', '+faststart', '/d.mp4']);
+  assert.ok(r.note.indexOf('audio only') !== -1);
+});
+
+test('choosePostProcess: AV1 video + aac audio => convert video, copy audio', () => {
+  const r = L.choosePostProcess(
+    { needsReencode: true, srcExt: 'mp4', tgtExt: 'mp4', vcodec: 'av1', acodec: 'aac' },
+    '/s.mp4', '/d.mp4'
+  );
+  assert.deepStrictEqual(r.args,
+    ['-y', '-i', '/s.mp4', '-c:v', 'libx264', '-c:a', 'copy', '-movflags', '+faststart', '/d.mp4']);
+});
+
+test('choosePostProcess: h264 with no audio stream => move, no pointless encode', () => {
+  assert.deepStrictEqual(
+    L.choosePostProcess(
+      { needsReencode: true, srcExt: 'mp4', tgtExt: 'mp4', vcodec: 'h264', acodec: '' },
+      '/s.mp4', '/d.mp4'
+    ),
+    { action: 'move' }
+  );
 });
 
 test('choosePostProcess: same ext, no reencode => move', () => {
@@ -200,10 +225,9 @@ test('choosePostProcess: same ext, no reencode => move', () => {
 });
 
 test('choosePostProcess: different ext, no reencode => remux copy', () => {
-  assert.deepStrictEqual(
-    L.choosePostProcess({ needsReencode: false, srcExt: 'webm', tgtExt: 'mp4' }, '/s.webm', '/d.mp4'),
-    { action: 'ffmpeg', args: ['-y', '-i', '/s.webm', '-c', 'copy', '/d.mp4'] }
-  );
+  const r = L.choosePostProcess({ needsReencode: false, srcExt: 'webm', tgtExt: 'mp4' }, '/s.webm', '/d.mp4');
+  assert.strictEqual(r.action, 'ffmpeg');
+  assert.deepStrictEqual(r.args, ['-y', '-i', '/s.webm', '-c', 'copy', '/d.mp4']);
 });
 
 test('parseProgress: machine template line with all fields', () => {

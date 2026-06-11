@@ -83,6 +83,12 @@ panel. Either run a **system-wide VPN app** (set to cover all apps, not split
 tunnel), or set **Settings ▸ Proxy URL** to a proxy/VPN address — many VPN
 apps expose a local proxy like `socks5://127.0.0.1:1080` you can paste there.
 
+For TikTok in India specifically, the VPN/proxy **must exit outside India**:
+TikTok's own servers refuse Indian IP addresses (every page redirects to
+their India notice), so bypassing the ISP block alone — e.g. by switching
+your DNS to 1.1.1.1 — gets you a different error, not a download. DNS-only
+fixes do work for sites that don't geo-refuse India themselves.
+
 **My download came in with only audio, or only video.**
 That's a site serving broken split streams. Hit **Retry** on the item —
 the panel normally detects and merges them itself. If it keeps

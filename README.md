@@ -34,12 +34,15 @@ Requires Premiere Pro 2021 (15.0) or newer.
 ## Settings (⚙)
 - **Where to save** — next to your `.prproj` (synced per project) or a fixed folder.
 - **Sign-in cookies** — needed for Instagram, X, and private/age-gated videos.
-  Two ways:
-  - *From a browser* — pick one you're logged into (close it before downloading;
-    on Windows, Chrome cookies can't be read — use Firefox).
-  - *From a cookies.txt file* — **the most reliable option.** Export it with the
-    "Get cookies.txt LOCALLY" browser extension while logged in, then point the
-    panel at the file. Works on every platform and survives browser updates.
+  - *From a cookies.txt file* — **recommended.** Click **Create from browser**:
+    the panel reads your browser's cookies once and saves them to a file — no
+    terminal, no extension, nothing technical. (Close the browser first. On
+    macOS, Chrome/Brave ask for a one-time keychain permission; Safari is blocked
+    by macOS privacy protection — use another browser. On Windows, use Firefox.)
+    Power users can instead export with the "Get cookies.txt LOCALLY" extension
+    and Browse to it — best for YouTube, where a private-window export lasts longest.
+  - *From a browser (live)* — reads cookies on every download; quicker to set up
+    but more fragile. Same browser caveats as above.
 - **Trim mode** — *Fast* downloads only the clip (cuts on keyframes, may start a
   moment early); *Precise* downloads everything and trims exactly. Fast falls back
   automatically when a site doesn't support it.

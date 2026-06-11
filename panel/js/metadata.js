@@ -75,9 +75,43 @@ function expandPlaylist(url, opts, cb) {
   });
 }
 
+// One-click cookies.txt creation: have yt-dlp read the browser's cookies once
+// and write them to destPath. yt-dlp's exit code is unreliable here (the dummy
+// extraction "fails" by design), so success = the file exists and is non-empty.
+// opts: { extRoot, browser, destPath }. cb(err, destPath)
+function exportCookies(opts, cb) {
+  var fs = require('fs');
+  var path = require('path');
+  var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
+  if (!bin) return cb(new Error('yt-dlp not found'));
+  try {
+    var dir = path.dirname(opts.destPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    if (fs.existsSync(opts.destPath)) fs.rmSync(opts.destPath);
+  } catch (e) { return cb(e); }
+  var p = childProcess.spawn(bin, L.cookieExportArgs(opts.browser, opts.destPath),
+    { env: binaries.augmentedEnv(process.env) });
+  var err = '';
+  p.stderr.on('data', function (d) { err += d.toString(); });
+  p.on('error', cb);
+  p.on('close', function () {
+    var ok = false;
+    try { ok = fs.existsSync(opts.destPath) && fs.statSync(opts.destPath).size > 0; } catch (e) {}
+    if (ok) return cb(null, opts.destPath);
+    var msg = firstErrLine(err) || 'No cookies could be read from ' + opts.browser + '.';
+    // macOS blocks Safari's cookie store behind Full Disk Access — no tool can
+    // read it without that grant, so steer users to a browser that works.
+    if (/operation not permitted/i.test(msg)) {
+      msg = 'macOS privacy protection blocks reading ' + opts.browser + ' cookies. Pick Chrome, Brave, or Firefox instead.';
+    }
+    cb(new Error(msg));
+  });
+}
+
 module.exports = {
   fetchInfo: fetchInfo,
   expandPlaylist: expandPlaylist,
+  exportCookies: exportCookies,
   parseInfoLine: parseInfoLine,
   cookieArgs: cookieArgs
 };

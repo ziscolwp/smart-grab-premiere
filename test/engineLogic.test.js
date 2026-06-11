@@ -85,6 +85,14 @@ test('buildYtDlpArgs: cookies-from-browser only when a browser is chosen', () =>
   assert.strictEqual(without.indexOf('--cookies-from-browser'), -1);
 });
 
+test('cookieExportArgs: one-shot browser-to-file dump, never an actual download', () => {
+  const args = L.cookieExportArgs('firefox', '/dest/cookies.txt');
+  assert.strictEqual(args[args.indexOf('--cookies-from-browser') + 1], 'firefox');
+  assert.strictEqual(args[args.indexOf('--cookies') + 1], '/dest/cookies.txt');
+  assert.ok(args.indexOf('--skip-download') !== -1);
+  assert.ok(args.indexOf('--ignore-errors') !== -1);
+});
+
 test('cookieArgs: file wins over browser, browser when no file, nothing otherwise', () => {
   assert.deepStrictEqual(L.cookieArgs('chrome', '/c.txt'), ['--cookies', '/c.txt']);
   assert.deepStrictEqual(L.cookieArgs('chrome', ''), ['--cookies-from-browser', 'chrome']);

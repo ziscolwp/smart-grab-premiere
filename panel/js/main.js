@@ -253,6 +253,7 @@ function showSettings() {
   $('trimMode').value = s.trimMode || 'fast';
   $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
   $('updateStatus').textContent = '';
+  $('cookiesFileStatus').textContent = '';
   $('mainView').classList.add('hidden'); $('settingsView').classList.remove('hidden');
 }
 (function wireSettings() {
@@ -261,12 +262,24 @@ function showSettings() {
     radios[i].addEventListener('change', function () { $('customRow').classList.toggle('hidden', this.value !== 'custom'); });
   }
   $('cookiesMode').addEventListener('change', syncCookiesRows);
+  $('exportCookiesBtn').addEventListener('click', function () {
+    var browser = $('exportBrowser').value;
+    var dest = require('path').join(settingsMod.DIR, 'cookies.txt');
+    $('cookiesFileStatus').textContent = 'Reading ' + browser + ' cookies… (close the browser if this fails)';
+    $('exportCookiesBtn').disabled = true;
+    metadata.exportCookies({ extRoot: extRoot, browser: browser, destPath: dest }, function (err, path) {
+      $('exportCookiesBtn').disabled = false;
+      if (err) { $('cookiesFileStatus').textContent = 'Could not read cookies: ' + err.message; return; }
+      $('cookiesFile').value = path;
+      $('cookiesFileStatus').textContent = '✓ Cookies file created — hit Save below.';
+    });
+  });
   $('chooseCookiesBtn').addEventListener('click', function () {
     evalJSX('sg_pickFile()', function (res) {
       if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('cookiesFile').value = res;
     });
   });
-  $('clearCookiesBtn').addEventListener('click', function () { $('cookiesFile').value = ''; });
+  $('clearCookiesBtn').addEventListener('click', function () { $('cookiesFile').value = ''; $('cookiesFileStatus').textContent = ''; });
   $('chooseFolderBtn').addEventListener('click', function () {
     evalJSX('sg_pickFolder()', function (res) {
       if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('customFolder').value = res;

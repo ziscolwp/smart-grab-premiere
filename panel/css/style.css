@@ -35,6 +35,10 @@ body {
 #cookiesBrowserRow, #cookiesFileRow { margin-top: 6px; }
 #cookiesFileRow .row { align-items: center; }
 #clearCookiesBtn { padding: 7px 9px; flex-shrink: 0; }
+.export-browser { flex: 1; }
+#exportCookiesBtn { flex-shrink: 0; }
+.cookies-file-pick { margin-top: 6px; }
+#cookiesFileStatus { margin-top: 4px; }
 .row { display: flex; gap: 8px; align-items: flex-end; }
 .row.two-col > div { flex: 1; }
 

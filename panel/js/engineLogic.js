@@ -46,6 +46,19 @@ function cookieArgs(cookiesBrowser, cookiesFile) {
   return [];
 }
 
+// One-shot export: read a browser's cookies once and dump them to a Netscape
+// cookies.txt (the yt-dlp FAQ method). yt-dlp needs a URL to run at all, so we
+// give it a trivial page and ignore the extraction result — the cookie jar is
+// written on shutdown either way; the caller verifies the file exists.
+function cookieExportArgs(browser, destPath) {
+  return [
+    '--cookies-from-browser', browser,
+    '--cookies', destPath,
+    '--skip-download', '--ignore-errors', '--no-warnings',
+    'https://www.youtube.com/robots.txt'
+  ];
+}
+
 // opts: { quality, videoFormat, audioFormat, clipEnabled, startTime, endTime,
 //         trimMode, cookiesBrowser, noPlaylist, platform }
 var PROGRESS_TEMPLATE = 'download:SG|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s';
@@ -238,6 +251,7 @@ module.exports = {
   videoFormatInfo: videoFormatInfo,
   useSections: useSections,
   cookieArgs: cookieArgs,
+  cookieExportArgs: cookieExportArgs,
   buildYtDlpArgs: buildYtDlpArgs,
   targetExt: targetExt,
   outputFileName: outputFileName,

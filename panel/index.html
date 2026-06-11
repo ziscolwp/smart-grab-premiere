@@ -15,8 +15,11 @@
     </div>
 
     <div id="setupBanner" class="banner hidden">
-      <div class="banner-text" id="setupBannerText"></div>
-      <button id="setupFixBtn" class="mini">Fix</button>
+      <div class="banner-main">
+        <div class="banner-text" id="setupBannerText"></div>
+        <div id="setupProgress" class="setup-progress hidden"><div id="setupProgressFill" class="setup-progress-fill"></div></div>
+      </div>
+      <button id="setupFixBtn" class="mini hidden">Retry</button>
     </div>
 
     <div class="card">
@@ -156,9 +159,11 @@
     <hr>
     <div class="row">
       <button id="updateYtdlpBtn">Update yt-dlp</button>
+      <button id="repairBtn" title="Re-download yt-dlp, ffmpeg, ffprobe and deno">Repair downloads</button>
       <div id="updateStatus" class="status update-status"></div>
     </div>
-    <div class="field-sub">Run this whenever a site stops working — fixes usually ship within a day.</div>
+    <div class="field-sub">Update yt-dlp whenever a site stops working — fixes usually ship within a day.
+      Repair re-downloads every component if something is broken.</div>
 
     <div class="row settings-actions"><button id="saveSettingsBtn" class="primary">Save</button></div>
   </div>

@@ -28,6 +28,11 @@ test('save() then load() round-trips and merges over defaults', () => {
   fs.unlinkSync(f);
 });
 
+test('ytDlpLastUpdate defaults to 0 (= never updated, so first open refreshes)', () => {
+  const s = settings.load(tmpFile());
+  assert.strictEqual(s.ytDlpLastUpdate, 0);
+});
+
 test('load() returns defaults on corrupt JSON', () => {
   const f = tmpFile();
   fs.writeFileSync(f, '{ not json');

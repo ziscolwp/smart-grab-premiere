@@ -17,7 +17,8 @@ var DEFAULTS = {
   lastAudioFormat: 'mp3',
   cookiesBrowser: 'none',                                    // 'none' | 'chrome' | 'firefox' | 'edge' | 'safari' | 'brave'
   cookiesFile: '',                                           // path to a Netscape cookies.txt (overrides cookiesBrowser when set)
-  trimMode: 'fast'                                           // 'fast' (download only the section) | 'precise' (full download + local trim)
+  trimMode: 'fast',                                          // 'fast' (download only the section) | 'precise' (full download + local trim)
+  ytDlpLastUpdate: 0                                         // ms epoch of the last yt-dlp download; 0 = never (drives the 14-day auto-update)
 };
 
 function merge(base, over) {

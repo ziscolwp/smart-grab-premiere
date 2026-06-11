@@ -26,6 +26,15 @@ body {
   border-radius: var(--radius); padding: 8px 10px; margin-bottom: 10px;
 }
 .banner-text { color: var(--amber); font-size: 11px; line-height: 1.4; }
+.banner-main { flex: 1; min-width: 0; }
+.setup-progress {
+  height: 4px; border-radius: 2px; margin-top: 6px; overflow: hidden;
+  background: rgba(224, 180, 84, .18);
+}
+.setup-progress-fill {
+  height: 100%; width: 0%; border-radius: 2px;
+  background: var(--amber); transition: width .25s ease;
+}
 
 /* ---- cards & fields ---- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px; }

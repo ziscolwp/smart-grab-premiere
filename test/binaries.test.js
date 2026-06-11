@@ -22,17 +22,21 @@ test('resolveBinary checks dirs in order (bundled wins over homebrew)', () => {
   assert.strictEqual(B.resolveBinary('ffmpeg', { dirs: dirs, isExec: isExec }), path.join('/ext/bin', 'ffmpeg'));
 });
 
-test('defaultDirs includes bundled, app-support, and homebrew paths in priority order', () => {
+test('defaultDirs: panel-managed app-support bin outranks the bundled bin', () => {
+  // The app-support bin is the only dir the panel can repair/auto-update, so
+  // it must win — a stale installer-bundled copy must never shadow an update.
   const dirs = B.defaultDirs('/EXT');
-  assert.strictEqual(dirs[0], path.join('/EXT', 'bin'));
-  assert.ok(dirs.some((d) => d.indexOf('Application Support') !== -1 && d.indexOf('SmartGrab') !== -1));
+  assert.ok(dirs[0].indexOf('Application Support') !== -1 && dirs[0].indexOf('SmartGrab') !== -1);
+  assert.strictEqual(dirs[1], path.join('/EXT', 'bin'));
   assert.ok(dirs.indexOf('/opt/homebrew/bin') !== -1);
   assert.ok(dirs.indexOf('/usr/local/bin') !== -1);
 });
 
-test('augmentedEnv prepends homebrew to PATH', () => {
+test('augmentedEnv prepends app-support bin then homebrew to PATH', () => {
   const env = B.augmentedEnv({ PATH: '/usr/bin:/bin' }, 'darwin');
-  assert.ok(env.PATH.indexOf('/opt/homebrew/bin') === 0);
+  assert.ok(env.PATH.indexOf('SmartGrab') !== -1);
+  assert.ok(env.PATH.indexOf('/opt/homebrew/bin') !== -1);
+  assert.ok(env.PATH.indexOf('SmartGrab') < env.PATH.indexOf('/opt/homebrew/bin'));
   assert.ok(env.PATH.indexOf('/usr/bin:/bin') !== -1);
 });
 
@@ -53,10 +57,10 @@ test('resolveBinary finds .exe variant on Windows', () => {
   );
 });
 
-test('defaultDirs on Windows skips homebrew and uses AppData', () => {
+test('defaultDirs on Windows skips homebrew and puts AppData first', () => {
   const dirs = B.defaultDirs('X:\\EXT', 'win32');
-  assert.strictEqual(dirs[0], path.join('X:\\EXT', 'bin'));
-  assert.ok(dirs[1].indexOf('SmartGrab') !== -1);
+  assert.ok(dirs[0].indexOf('SmartGrab') !== -1);
+  assert.strictEqual(dirs[1], path.join('X:\\EXT', 'bin'));
   assert.strictEqual(dirs.indexOf('/opt/homebrew/bin'), -1);
 });
 

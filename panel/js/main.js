@@ -5,6 +5,8 @@ var childProcess = require('child_process');
 var engine = require(extRoot + '/js/downloadEngine.js');
 var settingsMod = require(extRoot + '/js/settings.js');
 var binaries = require(extRoot + '/js/binaries.js');
+var setupLogic = require(extRoot + '/js/setupLogic.js');
+var setupBannerMod = require(extRoot + '/js/setupBanner.js');
 var clipboard = require(extRoot + '/js/clipboard.js');
 var editKeys = require(extRoot + '/js/editKeys.js');
 var timecode = require(extRoot + '/js/timecode.js');
@@ -82,28 +84,20 @@ function renderQueue(items) {
   });
 }
 
-// ---------- Setup health banner ----------
-function checkSetup() {
-  var missing = [];
-  if (!binaries.resolveBinary('yt-dlp', { extRoot: extRoot })) missing.push('yt-dlp');
-  if (!binaries.resolveBinary('ffmpeg', { extRoot: extRoot })) missing.push('ffmpeg');
-  var banner = $('setupBanner');
-  if (!missing.length) { banner.classList.add('hidden'); return; }
-  banner.classList.remove('hidden');
-  $('setupBannerText').textContent = missing.join(' and ') + ' missing — downloads will fail.';
-  $('setupFixBtn').classList.toggle('hidden', missing.indexOf('yt-dlp') === -1);
-}
-$('setupFixBtn').addEventListener('click', function () {
-  $('setupBannerText').textContent = 'Downloading yt-dlp…';
-  $('setupFixBtn').disabled = true;
-  binaries.updateYtDlp(function (err) {
-    $('setupFixBtn').disabled = false;
-    if (err) { $('setupBannerText').textContent = 'Download failed: ' + err.message; return; }
-    checkSetup();
-    if (!binaries.resolveBinary('ffmpeg', { extRoot: extRoot })) {
-      $('setupBannerText').textContent = 'ffmpeg still missing — re-run the installer.';
-    }
-  });
+// ---------- Setup health banner (self-healing — see setupBanner.js) ----------
+var setupBanner = setupBannerMod.createSetupBanner({
+  el: {
+    banner: $('setupBanner'),
+    text: $('setupBannerText'),
+    progress: $('setupProgress'),
+    fill: $('setupProgressFill'),
+    retryBtn: $('setupFixBtn')
+  },
+  binaries: binaries,
+  setupLogic: setupLogic,
+  settingsMod: settingsMod,
+  state: state,
+  extRoot: extRoot
 });
 
 // ---------- View switching ----------
@@ -290,7 +284,23 @@ function showSettings() {
     binaries.updateYtDlp(function (err, dest) {
       $('updateYtdlpBtn').disabled = false;
       $('updateStatus').textContent = err ? ('Update failed: ' + err.message) : 'Updated ✓';
-      checkSetup();
+      if (!err) {
+        state.settings.ytDlpLastUpdate = Date.now();
+        settingsMod.save(state.settings);
+      }
+    });
+  });
+  $('repairBtn').addEventListener('click', function () {
+    $('repairBtn').disabled = true; $('updateYtdlpBtn').disabled = true;
+    binaries.repairAll(extRoot, function (p) {
+      $('updateStatus').textContent = 'Downloading ' + p.label + ' (' + p.index + ' of ' + p.total + ')…';
+    }, function (err, result) {
+      $('repairBtn').disabled = false; $('updateYtdlpBtn').disabled = false;
+      $('updateStatus').textContent = err ? err.message : 'All components reinstalled ✓';
+      if (result && result.installed.indexOf('yt-dlp') !== -1) {
+        state.settings.ytDlpLastUpdate = Date.now();
+        settingsMod.save(state.settings);
+      }
     });
   });
   $('saveSettingsBtn').addEventListener('click', function () {
@@ -391,4 +401,4 @@ $('clearDoneBtn').addEventListener('click', function () { queue.clearDone(); });
 applySettingsToUI();
 updateUrlMeta();
 renderQueue(queue.getItems());
-checkSetup();
+setupBanner.init();

@@ -1,11 +1,13 @@
 // panel/js/binaries.js
-// Locates yt-dlp/ffmpeg/ffprobe and keeps yt-dlp updatable. Cross-platform:
-// every function takes an optional platform override so Windows behavior is
-// testable from macOS (and vice versa).
+// Locates yt-dlp/ffmpeg/ffprobe/deno and keeps them installed + updatable.
+// Cross-platform: every pure function takes an optional platform override so
+// Windows behavior is testable from macOS (and vice versa). Pure planning
+// logic lives in setupLogic.js; this file is the I/O shell.
 var fs = require('fs');
 var path = require('path');
 var os = require('os');
 var childProcess = require('child_process');
+var setupLogic = require('./setupLogic.js');
 
 function isWin(platform) { return (platform || process.platform) === 'win32'; }
 
@@ -28,11 +30,13 @@ function defaultIsExec(p) {
   }
 }
 
+// Priority: the panel-managed app-support bin wins — it's the only place the
+// panel can repair and auto-update, so a stale installer-bundled copy in
+// panel/bin must never shadow it. Then the bundled bin, then system paths.
 function defaultDirs(extRoot, platform) {
   var win = isWin(platform);
-  var dirs = [];
+  var dirs = [appSupportBin(platform)];
   if (extRoot) dirs.push(path.join(extRoot, 'bin'));
-  dirs.push(appSupportBin(platform));
   if (!win) dirs.push('/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin');
   var envPath = (process.env.PATH || '');
   var parts = envPath.split(win ? ';' : ':');
@@ -70,7 +74,7 @@ function augmentedEnv(baseEnv, platform) {
     env.PATH = appSupportBin(platform) + ';' + (env.PATH || '');
   } else {
     var existing = env.PATH || '/usr/bin:/bin';
-    env.PATH = '/opt/homebrew/bin:/usr/local/bin:' + existing;
+    env.PATH = appSupportBin(platform) + ':/opt/homebrew/bin:/usr/local/bin:' + existing;
   }
   return env;
 }
@@ -78,34 +82,180 @@ function augmentedEnv(baseEnv, platform) {
 // Nightly channel: the README recommends it for regular users — extractor
 // fixes for site breakage land there weeks before stable.
 function ytDlpDownloadUrl(platform) {
-  var base = 'https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/';
-  return base + (isWin(platform) ? 'yt-dlp.exe' : 'yt-dlp_macos');
+  return setupLogic.binaryUrl('yt-dlp', isWin(platform) ? 'win32' : 'darwin', os.arch());
 }
 
-// Real I/O — download latest yt-dlp into the user-writable app-support bin.
-// Manually tested (network + signing). cb(err, destPath).
-function updateYtDlp(cb) {
-  var win = isWin();
+// ---------------------------------------------------------------------------
+// Real I/O below — download/extract/install. Manually tested (network).
+// ---------------------------------------------------------------------------
+
+// Gatekeeper would block an unsigned, quarantined binary on macOS.
+function blessMacBinary(p) {
+  fs.chmodSync(p, 493 /* 0755 */);
+  try { childProcess.spawnSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', p]); } catch (e) {}
+  try { childProcess.spawnSync('/usr/bin/codesign', ['--force', '--sign', '-', p]); } catch (e) {}
+}
+
+// curl ships with both macOS and Windows 10+. Downloads to dest.part first so
+// a dropped connection can never leave a half-written "binary" shadowing a
+// good one. onPercent (optional) gets 0-100 parsed from curl's progress bar.
+function downloadFile(url, dest, onPercent, cb) {
+  var part = dest + '.part';
+  var curlBin = isWin() ? 'curl.exe' : '/usr/bin/curl';
+  var args = ['-L', '--fail', '--retry', '2', '--connect-timeout', '20', '-#', '-o', part, url];
+  var curl = childProcess.spawn(curlBin, args);
+  var errOut = '';
+  curl.stderr.on('data', function (d) {
+    var s = d.toString();
+    errOut += s;
+    if (errOut.length > 4000) errOut = errOut.slice(-2000);
+    var m = s.match(/(\d{1,3}(?:\.\d)?)%\s*$/);
+    if (m && onPercent) onPercent(Math.min(100, parseFloat(m[1])));
+  });
+  curl.on('error', cb);
+  curl.on('close', function (code) {
+    if (code !== 0) {
+      try { fs.rmSync(part, { force: true }); } catch (e) {}
+      var tail = errOut.split(/\r|\n/).filter(function (l) { return l && l.indexOf('#') !== 0 && !/^\s*[\d.%\s]+$/.test(l); }).slice(-2).join(' ');
+      return cb(new Error('Download failed (curl ' + code + ')' + (tail ? ': ' + tail : '')));
+    }
+    try { fs.renameSync(part, dest); cb(null, dest); } catch (e) { cb(e); }
+  });
+}
+
+// bsdtar extracts zips and ships with macOS and Windows 10 1803+ — one code
+// path for every archive we fetch.
+function extractArchive(zipPath, destDir, cb) {
+  var tarBin = isWin() ? 'tar.exe' : '/usr/bin/tar';
+  var p = childProcess.spawn(tarBin, ['-xf', zipPath, '-C', destDir]);
+  var errOut = '';
+  p.stderr.on('data', function (d) { errOut += d.toString(); });
+  p.on('error', cb);
+  p.on('close', function (code) {
+    if (code !== 0) return cb(new Error('Could not unpack archive (tar ' + code + '): ' + errOut.slice(0, 300)));
+    cb(null);
+  });
+}
+
+// Recursive search for wanted file names (the Windows ffmpeg zip nests
+// binaries under ffmpeg-master-latest-win64-gpl/bin/).
+function findFileIn(rootDir, fileName) {
+  var stack = [rootDir];
+  while (stack.length) {
+    var dir = stack.pop();
+    var entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { continue; }
+    for (var i = 0; i < entries.length; i++) {
+      var full = path.join(dir, entries[i].name);
+      if (entries[i].isDirectory()) stack.push(full);
+      else if (entries[i].name.toLowerCase() === fileName.toLowerCase()) return full;
+    }
+  }
+  return null;
+}
+
+function installedName(name) {
+  return isWin() ? name + '.exe' : name;
+}
+
+// Run one plan step: download (and unpack) into binDir, then install every
+// binary the step provides. cb(err).
+function runStep(step, binDir, onPercent, cb) {
+  if (!step.archive) {
+    var dest = path.join(binDir, installedName(step.provides[0]));
+    return downloadFile(step.url, dest, onPercent, function (err) {
+      if (err) return cb(err);
+      try { if (!isWin()) blessMacBinary(dest); } catch (e) { return cb(e); }
+      cb(null);
+    });
+  }
+  var stamp = Date.now().toString(36);
+  var zipPath = path.join(binDir, '_dl-' + stamp + '.zip');
+  var tmpDir = path.join(binDir, '_unpack-' + stamp);
+  function cleanup() {
+    try { fs.rmSync(zipPath, { force: true }); } catch (e) {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
+  }
+  downloadFile(step.url, zipPath, onPercent, function (err) {
+    if (err) { cleanup(); return cb(err); }
+    try { fs.mkdirSync(tmpDir, { recursive: true }); } catch (e) { cleanup(); return cb(e); }
+    extractArchive(zipPath, tmpDir, function (xerr) {
+      if (xerr) { cleanup(); return cb(xerr); }
+      try {
+        for (var i = 0; i < step.provides.length; i++) {
+          var wanted = installedName(step.provides[i]);
+          var found = findFileIn(tmpDir, wanted);
+          if (!found) throw new Error(wanted + ' was not inside the downloaded archive.');
+          var target = path.join(binDir, wanted);
+          try { fs.rmSync(target, { force: true }); } catch (e) {}
+          fs.renameSync(found, target);
+          if (!isWin()) blessMacBinary(target);
+        }
+        cleanup();
+        cb(null);
+      } catch (e) { cleanup(); cb(e); }
+    });
+  });
+}
+
+// The self-healing core. Checks which managed binaries are missing, downloads
+// each one into the user-writable app-support bin, reports progress, and never
+// rejects wholesale — partial success installs what it can and lists the rest.
+// onProgress({ label, index, total, percent }); cb(err, { installed, failed })
+// where err is non-null only if at least one download failed.
+function ensureAll(extRoot, onProgress, cb) {
+  var missing = [];
+  for (var i = 0; i < setupLogic.REQUIRED.length; i++) {
+    if (!resolveBinary(setupLogic.REQUIRED[i], { extRoot: extRoot })) missing.push(setupLogic.REQUIRED[i]);
+  }
+  installMissing(missing, onProgress, cb);
+}
+
+// Force-reinstall every managed binary (Settings "Repair" — fixes a present
+// but corrupted binary that ensureAll would consider fine).
+function repairAll(extRoot, onProgress, cb) {
+  installMissing(setupLogic.REQUIRED.slice(), onProgress, cb);
+}
+
+function installMissing(missing, onProgress, cb) {
+  onProgress = onProgress || function () {};
+  var plan = setupLogic.downloadPlan(missing, process.platform, os.arch());
   var binDir = appSupportBin();
-  var dest = path.join(binDir, win ? 'yt-dlp.exe' : 'yt-dlp');
+  if (!plan.length) return cb(null, { installed: [], failed: [] });
+  try {
+    if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
+  } catch (e) { return cb(e, { installed: [], failed: missing }); }
+
+  var installed = [], failed = [];
+  (function next(idx) {
+    if (idx >= plan.length) {
+      var err = failed.length ? new Error(setupLogic.failureMessage(failed)) : null;
+      return cb(err, { installed: installed, failed: failed });
+    }
+    var step = plan[idx];
+    onProgress({ label: step.label, index: idx + 1, total: plan.length, percent: 0 });
+    runStep(step, binDir, function (pct) {
+      onProgress({ label: step.label, index: idx + 1, total: plan.length, percent: pct });
+    }, function (err) {
+      var k;
+      if (err) { for (k = 0; k < step.provides.length; k++) failed.push(step.provides[k]); }
+      else { for (k = 0; k < step.provides.length; k++) installed.push(step.provides[k]); }
+      next(idx + 1);
+    });
+  })(0);
+}
+
+// Download latest yt-dlp into the app-support bin. cb(err, destPath).
+function updateYtDlp(cb) {
+  var binDir = appSupportBin();
+  var dest = path.join(binDir, installedName('yt-dlp'));
   try {
     if (!fs.existsSync(binDir)) fs.mkdirSync(binDir, { recursive: true });
   } catch (e) { return cb(e); }
-
-  var curlBin = win ? 'curl.exe' : '/usr/bin/curl';
-  var curl = childProcess.spawn(curlBin, ['-L', '--fail', '-o', dest, ytDlpDownloadUrl()]);
-  var errOut = '';
-  curl.stderr.on('data', function (d) { errOut += d.toString(); });
-  curl.on('error', cb);
-  curl.on('close', function (code) {
-    if (code !== 0) return cb(new Error('Download failed (curl ' + code + '): ' + errOut));
+  downloadFile(ytDlpDownloadUrl(), dest, null, function (err) {
+    if (err) return cb(err);
     try {
-      if (!win) {
-        fs.chmodSync(dest, 0o755);
-        // Gatekeeper would block an unsigned, quarantined binary.
-        try { childProcess.spawnSync('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', dest]); } catch (e) {}
-        try { childProcess.spawnSync('/usr/bin/codesign', ['--force', '--sign', '-', dest]); } catch (e) {}
-      }
+      if (!isWin()) blessMacBinary(dest);
       cb(null, dest);
     } catch (e) { cb(e); }
   });
@@ -119,5 +269,7 @@ module.exports = {
   appSupportBin: appSupportBin,
   ytDlpDownloadUrl: ytDlpDownloadUrl,
   updateYtDlp: updateYtDlp,
+  ensureAll: ensureAll,
+  repairAll: repairAll,
   APP_SUPPORT_BIN: APP_SUPPORT_BIN
 };

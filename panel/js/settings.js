@@ -3,7 +3,9 @@ var fs = require('fs');
 var path = require('path');
 var os = require('os');
 
-var DIR = path.join(os.homedir(), 'Library', 'Application Support', 'SmartGrab');
+var DIR = process.platform === 'win32'
+  ? path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'SmartGrab')
+  : path.join(os.homedir(), 'Library', 'Application Support', 'SmartGrab');
 var FILE = path.join(DIR, 'settings.json');
 
 var DEFAULTS = {
@@ -12,7 +14,9 @@ var DEFAULTS = {
   binName: 'Downloaded Video',
   lastQuality: 'fhd',
   lastVideoFormat: 'mp4Premiere',
-  lastAudioFormat: 'mp3'
+  lastAudioFormat: 'mp3',
+  cookiesBrowser: 'none',                                    // 'none' | 'chrome' | 'firefox' | 'edge' | 'safari' | 'brave'
+  trimMode: 'fast'                                           // 'fast' (download only the section) | 'precise' (full download + local trim)
 };
 
 function merge(base, over) {

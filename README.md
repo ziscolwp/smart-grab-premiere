@@ -1,30 +1,61 @@
 # Smart Grab for Premiere
 
-A Premiere Pro panel that downloads online video (via `yt-dlp` + `ffmpeg`) and
-auto-imports it into the current project, inside a "Downloaded Video" bin.
+A Premiere Pro panel that downloads online video with `yt-dlp` + `ffmpeg` and
+auto-imports it into your current project, inside a "Downloaded Video" bin.
+
+Works with YouTube, Instagram, X/Twitter, TikTok, Reddit, Loom, Vimeo, Twitch,
+Facebook and [over a thousand other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 ## Install
-1. Double-click **install.command** (fetches binaries, copies the panel, enables CEP).
-2. Restart Premiere Pro.
-3. Open **Window ▸ Extensions ▸ Smart Grab**.
 
-If macOS blocks the script: right-click ▸ Open the first time.
+### macOS (Intel & Apple Silicon)
+1. Download/clone this repo.
+2. Double-click **install.command** (fetches binaries, copies the panel, enables CEP).
+   If macOS blocks it: right-click ▸ Open the first time.
+3. Restart Premiere Pro → **Window ▸ Extensions ▸ Smart Grab**.
+
+### Windows (10/11, 64-bit)
+1. Download/clone this repo.
+2. Double-click **install.bat** (fetches `yt-dlp.exe` + `ffmpeg`, copies the panel, enables CEP).
+3. Restart Premiere Pro → **Window ▸ Extensions ▸ Smart Grab**.
+
+Requires Premiere Pro 2021 (15.0) or newer.
 
 ## Use
-1. Paste one or more video URLs (one per line) — or a playlist/channel link.
-2. Pick quality / format. For a single video, tick **Clip** and drag the slider to trim.
-3. **Add to Queue** — items show their title + length and download one at a time into the project.
+1. Paste one or more video links (one per line) — or a whole playlist/channel URL.
+2. Pick quality and format. **MP4 · edit-ready** guarantees H.264/AAC that Premiere
+   loves; it grabs an H.264 source when the site offers one, so most downloads
+   need no re-encoding at all.
+3. For a single link, flip **Trim to a clip** and drag the range (or type exact
+   times). In *Fast* trim mode only the selected section is downloaded.
+4. **Add to Queue** — items download one at a time and import straight into your
+   project bin, with thumbnails, speed/ETA and per-item retry.
 
 ## Settings (⚙)
-- **Sync to current project** — saves into a "Downloaded Video" folder next to your `.prproj`.
-- **Custom folder** — always saves to a fixed folder you choose.
-- **Update yt-dlp** — refresh the downloader when a site stops working.
+- **Where to save** — next to your `.prproj` (synced per project) or a fixed folder.
+- **Browser cookies** — needed for Instagram, X, and private/age-gated videos.
+  Pick a browser where you're logged in. *Windows note:* Chrome cookies can't be
+  read there (Chrome encryption) — use Firefox. Close the browser before downloading.
+- **Trim mode** — *Fast* downloads only the clip (cuts on keyframes, may start a
+  moment early); *Precise* downloads everything and trims exactly. Fast falls back
+  automatically when a site doesn't support it.
+- **Update yt-dlp** — one click, pulls the latest nightly. Run it whenever a site
+  stops working; fixes usually ship within a day.
 
-## Requirements
-macOS (Apple Silicon), Premiere Pro 2022+. The installer bundles `yt-dlp`/`ffmpeg`;
-if that fails it falls back to Homebrew copies (`brew install yt-dlp ffmpeg`).
+## When a download fails
+The panel translates common failures into plain English with a fix hint
+(sign-in walls, rate limits, geo blocks, site breakage…). The two universal fixes:
+
+1. **Update yt-dlp** (Settings) — sites change constantly; the nightly build keeps up.
+2. **Set browser cookies** (Settings) — for anything that needs a login.
 
 ## Development
-- `dev-link.command` symlinks the panel for live editing.
-- `npm test` runs the Node logic tests.
+- `dev-link.command` symlinks the panel for live editing (macOS).
+- `npm test` runs the Node logic tests (96 tests, no network needed).
+- All yt-dlp/ffmpeg decisions are pure functions in `panel/js/engineLogic.js`.
+- Research notes on yt-dlp flags: `docs/yt-dlp-notes.md`.
 - Spec: `docs/superpowers/specs/`. Plan: `docs/superpowers/plans/`.
+
+## Disclaimer
+Download only content you have the right to use. Respect each platform's terms
+of service and copyright law.

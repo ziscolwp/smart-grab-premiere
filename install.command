@@ -1,13 +1,14 @@
 #!/bin/bash
-# Smart Grab for Premiere — installer (copy + fetch binaries + enable CEP).
+# Smart Grab for Premiere — macOS installer (copy + fetch binaries + enable CEP).
 # Tolerant: a failed binary download is a warning, not fatal (runtime falls back to Homebrew).
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANEL_SRC="$SELF_DIR/panel"
 DEST="$HOME/Library/Application Support/Adobe/CEP/extensions/SmartGrabPanel"
 BIN="$PANEL_SRC/bin"
+ARCH="$(uname -m)"
 
-echo "Installing Smart Grab for Premiere…"
+echo "Installing Smart Grab for Premiere (macOS $ARCH)…"
 mkdir -p "$BIN"
 
 fetch() { # url dest
@@ -15,17 +16,35 @@ fetch() { # url dest
   curl -L --fail --silent --show-error -o "$2" "$1" || echo "    (skipped — will fall back to a system binary)"
 }
 
-[ -f "$BIN/yt-dlp" ] || fetch "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" "$BIN/yt-dlp"
+fetch_zip() { # url marker-file
+  local tmp="$BIN/_dl.zip"
+  fetch "$1" "$tmp"
+  [ -f "$tmp" ] && unzip -o -q "$tmp" -d "$BIN" && rm -f "$tmp"
+}
 
-if [ ! -f "$BIN/ffmpeg" ]; then
-  fetch "https://www.osxexperts.net/ffmpeg81arm.zip" "$BIN/ffmpeg.zip"
-  [ -f "$BIN/ffmpeg.zip" ] && unzip -o -q "$BIN/ffmpeg.zip" -d "$BIN" && rm -f "$BIN/ffmpeg.zip"
+# yt-dlp — nightly channel (extractor fixes land here first; universal2 binary).
+[ -f "$BIN/yt-dlp" ] || fetch "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp_macos" "$BIN/yt-dlp"
+
+# ffmpeg/ffprobe — static builds per architecture.
+if [ "$ARCH" = "arm64" ]; then
+  [ -f "$BIN/ffmpeg" ]  || fetch_zip "https://www.osxexperts.net/ffmpeg81arm.zip" ffmpeg
+  [ -f "$BIN/ffprobe" ] || fetch_zip "https://www.osxexperts.net/ffprobe81arm.zip" ffprobe
+else
+  [ -f "$BIN/ffmpeg" ]  || fetch_zip "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip" ffmpeg
+  [ -f "$BIN/ffprobe" ] || fetch_zip "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip" ffprobe
 fi
-if [ ! -f "$BIN/ffprobe" ]; then
-  fetch "https://www.osxexperts.net/ffprobe81arm.zip" "$BIN/ffprobe.zip"
-  [ -f "$BIN/ffprobe.zip" ] && unzip -o -q "$BIN/ffprobe.zip" -d "$BIN" && rm -f "$BIN/ffprobe.zip"
+
+# deno — JS runtime yt-dlp uses for YouTube's player challenges (optional but
+# recommended for full YouTube support).
+if [ ! -f "$BIN/deno" ]; then
+  if [ "$ARCH" = "arm64" ]; then
+    fetch_zip "https://github.com/denoland/deno/releases/latest/download/deno-aarch64-apple-darwin.zip" deno
+  else
+    fetch_zip "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-apple-darwin.zip" deno
+  fi
 fi
-chmod +x "$BIN"/yt-dlp "$BIN"/ffmpeg "$BIN"/ffprobe 2>/dev/null
+
+chmod +x "$BIN"/yt-dlp "$BIN"/ffmpeg "$BIN"/ffprobe "$BIN"/deno 2>/dev/null
 
 echo "Copying panel…"
 rm -rf "$DEST"
@@ -34,13 +53,14 @@ cp -R "$PANEL_SRC/" "$DEST/"
 
 echo "Clearing quarantine + signing binaries…"
 xattr -dr com.apple.quarantine "$DEST" 2>/dev/null
-for b in yt-dlp ffmpeg ffprobe; do
+for b in yt-dlp ffmpeg ffprobe deno; do
   [ -f "$DEST/bin/$b" ] && codesign --force --sign - "$DEST/bin/$b" 2>/dev/null
 done
 
-echo "Enabling CEP debug mode…"
-defaults write com.adobe.CSXS.11 PlayerDebugMode 1
-defaults write com.adobe.CSXS.12 PlayerDebugMode 1
+echo "Enabling CEP debug mode (PPro 2021–2025+)…"
+for v in 10 11 12; do
+  defaults write com.adobe.CSXS.$v PlayerDebugMode 1
+done
 killall -u "$(whoami)" cfprefsd 2>/dev/null
 
 echo ""

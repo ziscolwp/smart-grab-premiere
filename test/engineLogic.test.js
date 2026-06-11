@@ -2,13 +2,25 @@ const test = require('node:test');
 const assert = require('node:assert');
 const L = require('../panel/js/engineLogic.js');
 
-test('qualityToFormat maps every quality to the Smart Grab format string', () => {
-  assert.strictEqual(L.qualityToFormat('best'), 'bv*+ba/best');
-  assert.strictEqual(L.qualityToFormat('uhd'), 'bv*[height<=2160]+ba/best');
-  assert.strictEqual(L.qualityToFormat('fhd'), 'bv*[height<=1080]+ba/best');
-  assert.strictEqual(L.qualityToFormat('hd'), 'bv*[height<=720]+ba/best');
-  assert.strictEqual(L.qualityToFormat('sd'), 'bv*[height<=480]+ba/best');
-  assert.strictEqual(L.qualityToFormat('audioOnly'), 'ba/best');
+test('qualityToFormat: permissive selector with muxed fallback', () => {
+  assert.strictEqual(L.qualityToFormat('best'), 'bv*+ba/b');
+  assert.strictEqual(L.qualityToFormat('fhd'), 'bv*+ba/b');
+  assert.strictEqual(L.qualityToFormat('audioOnly'), 'ba/b');
+});
+
+test('formatSort: res cap first, then h264/aac preference for mp4 targets', () => {
+  assert.strictEqual(L.formatSort('fhd', 'mp4Premiere'), 'res:1080,vcodec:h264,acodec:aac');
+  assert.strictEqual(L.formatSort('uhd', 'mov'), 'res:2160,vcodec:h264,acodec:aac');
+  assert.strictEqual(L.formatSort('sd', 'mp4Raw'), 'res:480,vcodec:h264,acodec:aac');
+});
+test('formatSort: best quality has uncapped res but keeps codec preference', () => {
+  assert.strictEqual(L.formatSort('best', 'mp4Premiere'), 'res,vcodec:h264,acodec:aac');
+});
+test('formatSort: mkv (original) keeps natural codec ranking', () => {
+  assert.strictEqual(L.formatSort('fhd', 'mkv'), 'res:1080');
+});
+test('formatSort: audio only needs no sort', () => {
+  assert.strictEqual(L.formatSort('audioOnly', 'mp4Premiere'), null);
 });
 
 test('videoFormatInfo returns ext + needsReencode for each format', () => {
@@ -18,32 +30,77 @@ test('videoFormatInfo returns ext + needsReencode for each format', () => {
   assert.deepStrictEqual(L.videoFormatInfo('mp4Raw'), { ext: 'mp4', needsReencode: false });
 });
 
-test('buildYtDlpArgs builds video args with merge format', () => {
+test('useSections: only when clipping in fast mode', () => {
+  assert.strictEqual(L.useSections({ clipEnabled: true, endTime: '00:01:00', trimMode: 'fast' }), true);
+  assert.strictEqual(L.useSections({ clipEnabled: true, endTime: '00:01:00' }), true); // fast is the default
+  assert.strictEqual(L.useSections({ clipEnabled: true, endTime: '00:01:00', trimMode: 'precise' }), false);
+  assert.strictEqual(L.useSections({ clipEnabled: false, endTime: '00:01:00' }), false);
+  assert.strictEqual(L.useSections({ clipEnabled: true }), false);
+});
+
+function argValue(args, flag) {
+  const i = args.indexOf(flag);
+  return i === -1 ? undefined : args[i + 1];
+}
+
+test('buildYtDlpArgs: video args include sort, reliability flags, merge format', () => {
   const args = L.buildYtDlpArgs(
     { quality: 'fhd', videoFormat: 'mp4Premiere' },
     '/tmp/work', '/opt/homebrew/bin', 'https://x/y'
   );
-  assert.deepStrictEqual(args, [
-    '-P', '/tmp/work', '-f', 'bv*[height<=1080]+ba/best',
-    '--force-ipv4', '--newline', '--no-warnings',
-    '--ffmpeg-location', '/opt/homebrew/bin',
-    '--extractor-retries', '3', '--retry-sleep', 'extractor:5',
-    '--merge-output-format', 'mp4', 'https://x/y'
-  ]);
+  assert.strictEqual(argValue(args, '-P'), '/tmp/work');
+  assert.strictEqual(argValue(args, '-f'), 'bv*+ba/b');
+  assert.strictEqual(argValue(args, '-S'), 'res:1080,vcodec:h264,acodec:aac');
+  assert.strictEqual(argValue(args, '--ffmpeg-location'), '/opt/homebrew/bin');
+  assert.strictEqual(argValue(args, '--merge-output-format'), 'mp4');
+  assert.strictEqual(argValue(args, '--concurrent-fragments'), '4');
+  assert.strictEqual(argValue(args, '--retries'), '10');
+  assert.ok(args.indexOf('--windows-filenames') !== -1);
+  assert.ok(args.indexOf('--no-playlist') !== -1);
+  assert.ok(args.indexOf('--newline') !== -1);
+  assert.ok(String(argValue(args, '--progress-template')).indexOf('SG|') !== -1);
+  assert.ok(String(argValue(args, '-o')).indexOf('%(title).80B') === 0);
+  assert.strictEqual(args[args.length - 1], 'https://x/y');
 });
 
-test('buildYtDlpArgs builds MKV merge format', () => {
+test('buildYtDlpArgs: MKV merge format, no codec sort', () => {
   const args = L.buildYtDlpArgs({ quality: 'best', videoFormat: 'mkv' }, '/t', '/f', 'URL');
-  assert.ok(args.indexOf('--merge-output-format') !== -1);
-  assert.strictEqual(args[args.indexOf('--merge-output-format') + 1], 'mkv');
+  assert.strictEqual(argValue(args, '--merge-output-format'), 'mkv');
+  assert.strictEqual(argValue(args, '-S'), 'res');
 });
 
-test('buildYtDlpArgs builds audio-only extraction args', () => {
+test('buildYtDlpArgs: audio-only extraction args', () => {
   const args = L.buildYtDlpArgs({ quality: 'audioOnly', audioFormat: 'mp3' }, '/t', '/f', 'URL');
   assert.ok(args.indexOf('-x') !== -1);
-  assert.strictEqual(args[args.indexOf('--audio-format') + 1], 'mp3');
+  assert.strictEqual(argValue(args, '--audio-format'), 'mp3');
   assert.strictEqual(args.indexOf('--merge-output-format'), -1);
+  assert.strictEqual(args.indexOf('-S'), -1);
   assert.strictEqual(args[args.length - 1], 'URL');
+});
+
+test('buildYtDlpArgs: cookies-from-browser only when a browser is chosen', () => {
+  const withC = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere', cookiesBrowser: 'firefox' }, '/t', '/f', 'U');
+  assert.strictEqual(argValue(withC, '--cookies-from-browser'), 'firefox');
+  const without = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere', cookiesBrowser: 'none' }, '/t', '/f', 'U');
+  assert.strictEqual(without.indexOf('--cookies-from-browser'), -1);
+});
+
+test('buildYtDlpArgs: fast clip adds --download-sections; precise does not', () => {
+  const fast = L.buildYtDlpArgs(
+    { quality: 'fhd', videoFormat: 'mp4Premiere', clipEnabled: true, startTime: '00:00:10', endTime: '00:01:00' },
+    '/t', '/f', 'U'
+  );
+  assert.strictEqual(argValue(fast, '--download-sections'), '*00:00:10-00:01:00');
+  const precise = L.buildYtDlpArgs(
+    { quality: 'fhd', videoFormat: 'mp4Premiere', clipEnabled: true, startTime: '00:00:10', endTime: '00:01:00', trimMode: 'precise' },
+    '/t', '/f', 'U'
+  );
+  assert.strictEqual(precise.indexOf('--download-sections'), -1);
+});
+
+test('buildYtDlpArgs: noPlaylist false drops the flag (playlist entries)', () => {
+  const args = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere', noPlaylist: false }, '/t', '/f', 'U');
+  assert.strictEqual(args.indexOf('--no-playlist'), -1);
 });
 
 test('outputFileName: plain video', () => {
@@ -74,7 +131,7 @@ test('choosePostProcess: audio-only => move', () => {
   );
 });
 
-test('choosePostProcess: clip with reencode format', () => {
+test('choosePostProcess: local clip with reencode format', () => {
   const r = L.choosePostProcess(
     { clipEnabled: true, startTime: '00:00:01', endTime: '00:00:09', needsReencode: true },
     '/s.mkv', '/d.mp4'
@@ -86,12 +143,21 @@ test('choosePostProcess: clip with reencode format', () => {
   });
 });
 
-test('choosePostProcess: clip without reencode copies streams', () => {
+test('choosePostProcess: local clip without reencode copies streams', () => {
   const r = L.choosePostProcess(
     { clipEnabled: true, startTime: '0', endTime: '5', needsReencode: false },
     '/s.mkv', '/d.mkv'
   );
   assert.deepStrictEqual(r.args.slice(-3), ['-c', 'copy', '/d.mkv']);
+});
+
+test('choosePostProcess: section-downloaded clip skips local -ss/-to', () => {
+  const r = L.choosePostProcess(
+    { clipEnabled: true, startTime: '00:00:01', endTime: '00:00:09', needsReencode: true,
+      sectionDownloaded: true, srcExt: 'mp4', tgtExt: 'mp4', vcodec: 'h264', acodec: 'aac' },
+    '/s.mp4', '/d.mp4'
+  );
+  assert.deepStrictEqual(r, { action: 'move' });
 });
 
 test('choosePostProcess: already h264+aac+mp4 => move (fast path)', () => {
@@ -102,6 +168,17 @@ test('choosePostProcess: already h264+aac+mp4 => move (fast path)', () => {
     ),
     { action: 'move' }
   );
+});
+
+test('choosePostProcess: right codecs wrong container => lossless remux', () => {
+  const r = L.choosePostProcess(
+    { needsReencode: true, srcExt: 'mp4', tgtExt: 'mov', vcodec: 'h264', acodec: 'aac' },
+    '/s.mp4', '/d.mov'
+  );
+  assert.deepStrictEqual(r, {
+    action: 'ffmpeg',
+    args: ['-y', '-i', '/s.mp4', '-c', 'copy', '-movflags', '+faststart', '/d.mov']
+  });
 });
 
 test('choosePostProcess: reencode when codecs differ', () => {
@@ -129,18 +206,33 @@ test('choosePostProcess: different ext, no reencode => remux copy', () => {
   );
 });
 
-test('parseProgress extracts percent and strips [download] prefix', () => {
+test('parseProgress: machine template line with all fields', () => {
+  const r = L.parseProgress('SG|  42.5%| 1.05MiB/s|00:45');
+  assert.strictEqual(r.percent, 42.5);
+  assert.strictEqual(r.speed, '1.05MiB/s');
+  assert.strictEqual(r.eta, '00:45');
+  assert.ok(r.status.indexOf('42.5%') !== -1);
+});
+
+test('parseProgress: machine template tolerates Unknown fields', () => {
+  const r = L.parseProgress('SG| 100.0%|Unknown B/s|Unknown');
+  assert.strictEqual(r.percent, 100);
+  assert.strictEqual(r.speed, null);
+  assert.strictEqual(r.eta, null);
+});
+
+test('parseProgress: legacy [download] line still parses', () => {
   const r = L.parseProgress('[download]  42.5% of 10MiB at 1MiB/s');
   assert.strictEqual(Math.round(r.percent * 10) / 10, 42.5);
   assert.ok(r.status.indexOf('[download]') === -1);
 });
 
-test('parseProgress returns merging status for merge lines', () => {
+test('parseProgress: merging status for merge lines', () => {
   const r = L.parseProgress('[Merger] Merging formats into "x.mp4"');
   assert.strictEqual(r.status, 'Merging streams...');
   assert.strictEqual(r.percent, null);
 });
 
-test('parseProgress returns null for unrelated lines', () => {
+test('parseProgress: null for unrelated lines', () => {
   assert.strictEqual(L.parseProgress('[info] something'), null);
 });

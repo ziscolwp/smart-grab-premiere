@@ -6,6 +6,7 @@ var os = require('os');
 var childProcess = require('child_process');
 var L = require('./engineLogic.js');
 var binaries = require('./binaries.js');
+var errorHints = require('./errorHints.js');
 
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
@@ -18,7 +19,7 @@ function run(exe, args, env, onLine, onProc, done) {
   var recent = [];
   function push(line) {
     recent.push(line);
-    if (recent.length > 8) recent.shift();
+    if (recent.length > 30) recent.shift();
     if (onLine) onLine(line);
   }
   function feed(buf) {
@@ -33,8 +34,12 @@ function run(exe, args, env, onLine, onProc, done) {
     var meaningful = recent.filter(function (l) {
       return l.indexOf('[download]') === -1 && l.indexOf('Downloading') === -1;
     });
-    var detail = (meaningful.length ? meaningful : recent).slice(-4).join('\n');
-    done(new Error(path.basename(exe) + ' failed:\n' + (detail || 'unknown error')));
+    var raw = (meaningful.length ? meaningful : recent).slice(-6).join('\n');
+    var hit = errorHints.friendly(raw);
+    var err = new Error(hit ? hit.message : (path.basename(exe) + ' failed:\n' + (raw || 'unknown error')));
+    err.hint = hit ? hit.hint : null;
+    err.raw = raw;
+    done(err);
   });
 }
 
@@ -47,7 +52,8 @@ function probeCodec(ffprobe, file, stream, env, cb) {
   p.on('close', function () { cb(out.replace(/^\s+|\s+$/g, '')); });
 }
 
-// opts: { url, outputDir, quality, videoFormat, audioFormat, clipEnabled, startTime, endTime, extRoot }
+// opts: { url, outputDir, quality, videoFormat, audioFormat, clipEnabled, startTime,
+//         endTime, trimMode, cookiesBrowser, noPlaylist, extRoot }
 // callbacks: { onProgress(percent,status), onProc(proc) }
 // cb(err, { path, size })
 function download(opts, callbacks, cb) {
@@ -57,11 +63,14 @@ function download(opts, callbacks, cb) {
 
   var ytdlp = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   var ffmpeg = binaries.resolveBinary('ffmpeg', { extRoot: opts.extRoot });
-  if (!ytdlp) return cb(new Error('yt-dlp not found. Click "Update yt-dlp" or install it.'));
-  if (!ffmpeg) return cb(new Error('ffmpeg not found. Re-run the installer or `brew install ffmpeg`.'));
+  if (!ytdlp) return cb(new Error('yt-dlp not found. Click "Update yt-dlp" in Settings or re-run the installer.'));
+  if (!ffmpeg) return cb(new Error('ffmpeg not found. Re-run the installer.'));
   var ffprobe = binaries.resolveBinary('ffprobe', { extRoot: opts.extRoot }) || ffmpeg;
   var ffmpegDir = path.dirname(ffmpeg);
   var env = binaries.augmentedEnv(process.env);
+  // yt-dlp looks for helper binaries (deno for YouTube's JS challenges) on
+  // PATH — make sure its own folder is there.
+  env.PATH = path.dirname(ytdlp) + (process.platform === 'win32' ? ';' : ':') + env.PATH;
 
   var tmp = path.join(os.tmpdir(), 'smartgrab-' + uuidish());
   try {
@@ -73,15 +82,40 @@ function download(opts, callbacks, cb) {
 
   var audioOnly = opts.quality === 'audioOnly';
   var vinfo = L.videoFormatInfo(opts.videoFormat);
-  var args = L.buildYtDlpArgs(opts, tmp, ffmpegDir, opts.url);
 
-  onProgress(0, 'Downloading...');
-  run(ytdlp, args, env, function (line) {
-    var p = L.parseProgress(line);
-    if (p) onProgress(p.percent, p.status);
-  }, onProc, function (err) {
-    if (err) { cleanup(); return cb(err); }
+  // First try the fast path (server-side --download-sections for clips).
+  // If that yt-dlp run fails and sections were in play, retry once with a
+  // full download + local trim — some sites/formats don't support sections.
+  function attemptDownload(sectionsAllowed, attemptCb) {
+    var attemptOpts = sectionsAllowed ? opts : Object.assign({}, opts, { trimMode: 'precise' });
+    var sectionsUsed = L.useSections(attemptOpts);
+    var args = L.buildYtDlpArgs(attemptOpts, tmp, ffmpegDir, opts.url);
+    run(ytdlp, args, env, function (line) {
+      var p = L.parseProgress(line);
+      if (p) onProgress(p.percent, p.status);
+    }, onProc, function (err) {
+      attemptCb(err, sectionsUsed);
+    });
+  }
 
+  function startAttempt(sectionsAllowed) {
+    onProgress(0, 'Downloading...');
+    attemptDownload(sectionsAllowed, function (err, sectionsUsed) {
+      if (err) {
+        if (sectionsUsed) {
+          // Clean the tmp dir and retry with a full download + local trim.
+          try { fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp, { recursive: true }); } catch (e) {}
+          onProgress(0, 'Fast trim unavailable — downloading full video...');
+          return startAttempt(false);
+        }
+        cleanup();
+        return cb(err);
+      }
+      postProcess(sectionsUsed);
+    });
+  }
+
+  function postProcess(sectionsUsed) {
     var files;
     try {
       files = fs.readdirSync(tmp).filter(function (f) {
@@ -132,23 +166,27 @@ function download(opts, callbacks, cb) {
       });
     }
 
-    // Build the post-process descriptor. For reencode formats we need codecs first.
-    if (!audioOnly && vinfo.needsReencode && !(opts.clipEnabled && opts.endTime)) {
+    var base = {
+      audioOnly: audioOnly, clipEnabled: opts.clipEnabled, startTime: opts.startTime,
+      endTime: opts.endTime, needsReencode: vinfo.needsReencode,
+      srcExt: srcExt, tgtExt: tgtExt, sectionDownloaded: sectionsUsed
+    };
+    var localClip = opts.clipEnabled && opts.endTime && !sectionsUsed;
+
+    // For reencode targets, probe codecs first so an already-H.264/AAC file
+    // can be moved or remuxed instead of re-encoded.
+    if (!audioOnly && vinfo.needsReencode && !localClip) {
       probeCodec(ffprobe, src, 'v:0', env, function (vc) {
         probeCodec(ffprobe, src, 'a:0', env, function (ac) {
-          applyAction(L.choosePostProcess({
-            audioOnly: audioOnly, clipEnabled: opts.clipEnabled, startTime: opts.startTime, endTime: opts.endTime,
-            needsReencode: vinfo.needsReencode, srcExt: srcExt, tgtExt: tgtExt, vcodec: vc, acodec: ac
-          }, src, dest));
+          applyAction(L.choosePostProcess(Object.assign({}, base, { vcodec: vc, acodec: ac }), src, dest));
         });
       });
     } else {
-      applyAction(L.choosePostProcess({
-        audioOnly: audioOnly, clipEnabled: opts.clipEnabled, startTime: opts.startTime, endTime: opts.endTime,
-        needsReencode: vinfo.needsReencode, srcExt: srcExt, tgtExt: tgtExt
-      }, src, dest));
+      applyAction(L.choosePostProcess(base, src, dest));
     }
-  });
+  }
+
+  startAttempt(true);
 }
 
 module.exports = { download: download };

@@ -32,7 +32,12 @@ function createQueue(deps) {
         deps.fetchInfo(url, function (err, info) {
           fetching--;
           if (err) { items = qs.setStatus(items, id, 'queued', { title: url, statusMsg: 'title unavailable' }); }
-          else { items = qs.setStatus(items, id, 'queued', { title: info.title, durationSec: info.durationSec }); }
+          else {
+            items = qs.setStatus(items, id, 'queued', {
+              title: info.title, durationSec: info.durationSec,
+              thumbnail: info.thumbnail || null, uploader: info.uploader || null
+            });
+          }
           notify();
           pumpTitles();
           pumpDownloads();
@@ -60,7 +65,11 @@ function createQueue(deps) {
         onProc: function (p) { procs[id] = p; }
       }, function (err, res) {
         delete procs[id];
-        if (err) { setStatus(id, 'error', { statusMsg: err.message }); pumpDownloads(); return; }
+        if (err) {
+          setStatus(id, 'error', { statusMsg: err.message, errorHint: err.hint || null });
+          pumpDownloads();
+          return;
+        }
         update(id, { statusMsg: 'Importing…', progress: 100 });
         deps.importFile(res.path, function (impErr) {
           setStatus(id, 'done', {
@@ -95,11 +104,20 @@ function createQueue(deps) {
     items = qs.remove(items, id); notify();
   }
 
+  function retry(id) {
+    var it = null;
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) it = items[i];
+    if (!it || (it.status !== 'error' && it.status !== 'canceled')) return;
+    items = qs.setStatus(items, id, 'queued', { statusMsg: '', errorHint: null, progress: 0 });
+    notify();
+    pumpDownloads();
+  }
+
   function clearDone() { items = qs.clearDone(items); notify(); }
   function getItems() { return items; }
 
   return {
-    addUrls: addUrls, cancel: cancel, cancelAll: cancelAll,
+    addUrls: addUrls, cancel: cancel, cancelAll: cancelAll, retry: retry,
     remove: remove, clearDone: clearDone, getItems: getItems
   };
 }

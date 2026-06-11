@@ -3,7 +3,7 @@
 // `doc` is passed in so it has no hard global dependency.
 var timecode = require('./timecode.js');
 
-// create(doc, container, durationSec, onChange) -> { getRange: () => {start,end} }
+// create(doc, container, durationSec, onChange) -> { getRange: () => {start,end}, setRange: (s,e) => void }
 function create(doc, container, durationSec, onChange) {
   container.innerHTML = '';
   durationSec = Math.max(1, Math.floor(durationSec || 1));
@@ -48,7 +48,14 @@ function create(doc, container, durationSec, onChange) {
   endInput.addEventListener('input', paint);
   paint();
 
-  return { getRange: current };
+  function setRange(s, e) {
+    var r = timecode.clampRange(s, e, durationSec);
+    startInput.value = r.start;
+    endInput.value = r.end;
+    paint();
+  }
+
+  return { getRange: current, setRange: setRange };
 }
 
 module.exports = { create: create };

@@ -8,91 +8,131 @@
 <body>
   <div id="mainView">
     <div class="header">
-      <span class="title">Smart Grab</span>
-      <button id="settingsBtn" class="icon-btn" title="Settings">⚙</button>
+      <span class="title"><span class="logo-dot"></span>Smart Grab</span>
+      <button id="settingsBtn" class="icon-btn" title="Settings">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
     </div>
 
-    <label class="field-label">Video URL(s) — one per line</label>
-    <div class="row">
-      <textarea id="url" rows="3" placeholder="https://youtube.com/watch?v=...
-https://youtube.com/watch?v=..."></textarea>
-      <button id="pasteBtn" class="icon-btn" title="Paste">⎘</button>
+    <div id="setupBanner" class="banner hidden">
+      <div class="banner-text" id="setupBannerText"></div>
+      <button id="setupFixBtn" class="mini">Fix</button>
     </div>
 
-    <div class="row two-col">
-      <div>
-        <label class="field-label">Quality</label>
-        <select id="quality">
-          <option value="best">Best available</option>
-          <option value="uhd">4K (2160p)</option>
-          <option value="fhd">1080p</option>
-          <option value="hd">720p</option>
-          <option value="sd">480p</option>
-          <option value="audioOnly">Audio only</option>
-        </select>
+    <div class="card">
+      <div class="url-wrap">
+        <textarea id="url" rows="3" placeholder="Paste video links — YouTube, Instagram, X, TikTok, Reddit, Loom… one per line"></textarea>
+        <button id="pasteBtn" class="icon-btn url-paste" title="Paste from clipboard">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+        </button>
       </div>
-      <div>
-        <label class="field-label">Format</label>
-        <select id="videoFormat">
-          <option value="mp4Premiere">MP4 (Premiere)</option>
-          <option value="mov">MOV</option>
-          <option value="mkv">MKV (original)</option>
-          <option value="mp4Raw">MP4 (no re-encode)</option>
-        </select>
-        <select id="audioFormat" class="hidden">
-          <option value="mp3">MP3</option>
-          <option value="m4a">M4A</option>
-          <option value="wav">WAV</option>
-          <option value="flac">FLAC</option>
-        </select>
+      <div id="urlMeta" class="url-meta"></div>
+
+      <div class="row two-col">
+        <div>
+          <label class="field-label" for="quality">Quality</label>
+          <select id="quality">
+            <option value="best">Best available</option>
+            <option value="uhd">4K (2160p)</option>
+            <option value="fhd">1080p</option>
+            <option value="hd">720p</option>
+            <option value="sd">480p</option>
+            <option value="audioOnly">Audio only</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="videoFormat">Format</label>
+          <select id="videoFormat">
+            <option value="mp4Premiere">MP4 · edit-ready</option>
+            <option value="mov">MOV</option>
+            <option value="mkv">MKV · original</option>
+            <option value="mp4Raw">MP4 · no re-encode</option>
+          </select>
+          <select id="audioFormat" class="hidden">
+            <option value="mp3">MP3</option>
+            <option value="m4a">M4A</option>
+            <option value="wav">WAV</option>
+            <option value="flac">FLAC</option>
+          </select>
+        </div>
       </div>
-    </div>
 
-    <label class="checkbox"><input id="clipEnabled" type="checkbox"> Clip time range (single video)</label>
-    <div id="clipRow" class="hidden">
-      <div id="clipSlider"></div>
-      <div id="clipManual" class="row two-col hidden">
-        <div><label class="field-label">Start</label><input id="startTime" type="text" value="00:00:00"></div>
-        <div><label class="field-label">End</label><input id="endTime" type="text" placeholder="00:01:30"></div>
+      <label class="switch-row" id="clipToggleRow">
+        <span class="switch"><input id="clipEnabled" type="checkbox"><span class="knob"></span></span>
+        <span class="switch-label">Trim to a clip <span class="switch-sub" id="clipHint">(single link only)</span></span>
+      </label>
+      <div id="clipRow" class="hidden">
+        <div id="clipSlider"></div>
+        <div class="row two-col clip-times">
+          <div><label class="field-label" for="startTime">Start</label><input id="startTime" type="text" value="00:00:00"></div>
+          <div><label class="field-label" for="endTime">End</label><input id="endTime" type="text" placeholder="00:01:30"></div>
+        </div>
       </div>
-    </div>
 
-    <div class="dest-hint" id="destHint">Saving to: project folder</div>
-
-    <div class="row">
       <button id="addBtn" class="primary">Add to Queue</button>
+      <div class="dest-hint"><span id="destHint">Saving next to the project</span> · <a href="#" id="destChange">change</a></div>
+      <div id="topStatus" class="status"></div>
     </div>
-    <div id="topStatus" class="status"></div>
 
     <div class="queue-head">
-      <span class="field-label">Queue</span>
+      <span class="field-label queue-title">Queue <span id="queueCount"></span></span>
       <span class="queue-actions">
         <button id="cancelAllBtn" class="mini">Cancel all</button>
         <button id="clearDoneBtn" class="mini">Clear done</button>
       </span>
     </div>
-    <div id="queueList"><div class="empty">Nothing queued yet.</div></div>
+    <div id="queueList"><div class="empty">Nothing queued yet — paste a link above to get started.</div></div>
   </div>
 
   <div id="settingsView" class="hidden">
     <div class="header">
+      <button id="backBtn" class="icon-btn" title="Back">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      </button>
       <span class="title">Settings</span>
-      <button id="backBtn" class="icon-btn" title="Back">←</button>
+      <span></span>
     </div>
+
     <label class="field-label">Where to save downloads</label>
     <label class="radio"><input type="radio" name="mode" value="sync"> Sync to current project
-      <span class="radio-sub">creates a "Downloaded Video" folder next to the .prproj</span></label>
+      <span class="radio-sub">creates a folder next to your .prproj</span></label>
     <label class="radio"><input type="radio" name="mode" value="custom"> Custom folder
       <span class="radio-sub">always save to a fixed folder</span></label>
     <div id="customRow" class="row hidden">
       <input id="customFolder" type="text" readonly placeholder="No folder chosen">
       <button id="chooseFolderBtn">Browse…</button>
     </div>
-    <label class="field-label">Project bin name</label>
+
+    <label class="field-label" for="binName">Project bin / folder name</label>
     <input id="binName" type="text" value="Downloaded Video">
+
+    <label class="field-label" for="cookiesBrowser">Browser cookies</label>
+    <select id="cookiesBrowser">
+      <option value="none">Off</option>
+      <option value="chrome">Chrome</option>
+      <option value="firefox">Firefox</option>
+      <option value="edge">Edge</option>
+      <option value="safari">Safari</option>
+      <option value="brave">Brave</option>
+    </select>
+    <div class="field-sub">Needed for Instagram, X and private/age-gated videos — pick a browser where you're logged in.
+      On Windows use Firefox (Chrome cookies can't be read there), and close the browser before downloading.</div>
+
+    <label class="field-label" for="trimMode">Trim mode</label>
+    <select id="trimMode">
+      <option value="fast">Fast — download only the clip</option>
+      <option value="precise">Precise — full download, exact trim</option>
+    </select>
+    <div class="field-sub">Fast saves time and bandwidth but may start a moment early (cuts on keyframes).
+      Falls back automatically when a site doesn't support it.</div>
+
     <hr>
-    <button id="updateYtdlpBtn">Update yt-dlp</button>
-    <div id="updateStatus" class="status"></div>
+    <div class="row">
+      <button id="updateYtdlpBtn">Update yt-dlp</button>
+      <div id="updateStatus" class="status update-status"></div>
+    </div>
+    <div class="field-sub">Run this whenever a site stops working — fixes usually ship within a day.</div>
+
     <div class="row settings-actions"><button id="saveSettingsBtn" class="primary">Save</button></div>
   </div>
 

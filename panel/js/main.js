@@ -1,6 +1,7 @@
 // panel/js/main.js
 var cs = new CSInterface();
 var extRoot = cs.getSystemPath(SystemPath.EXTENSION);
+var childProcess = require('child_process');
 var engine = require(extRoot + '/js/downloadEngine.js');
 var settingsMod = require(extRoot + '/js/settings.js');
 var binaries = require(extRoot + '/js/binaries.js');
@@ -11,17 +12,17 @@ var urls = require(extRoot + '/js/urls.js');
 var metadata = require(extRoot + '/js/metadata.js');
 var rangeSlider = require(extRoot + '/js/rangeSlider.js');
 var queueMod = require(extRoot + '/js/queue.js');
+var queueRender = require(extRoot + '/js/queueRender.js');
 
 var $ = function (id) { return document.getElementById(id); };
 var state = { settings: settingsMod.load() };
 var idCounter = 0;
-var clip = { slider: null, durationSec: null, startSec: 0, endSec: 0 };
+var clip = { slider: null, durationSec: null };
 
 function evalJSX(fnCall, cb) { cs.evalScript(fnCall, cb); }
 function jsStr(s) { return JSON.stringify(String(s)); }
-function escHtml(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-// ---------- The queue ----------
+// ---------- Premiere bridge ----------
 function resolveOutputDir(opts, cb) {
   var s = state.settings;
   if (s.destinationMode === 'custom') {
@@ -39,59 +40,69 @@ function importFile(path, cb) {
     cb(r === 'OK' ? null : new Error(r || 'import failed'));
   });
 }
+function revealFile(p) {
+  try {
+    if (process.platform === 'win32') childProcess.spawn('explorer', ['/select,' + p]);
+    else childProcess.spawn('open', ['-R', p]);
+  } catch (e) {}
+}
+
+// ---------- The queue ----------
 var queue = queueMod.createQueue({
   extRoot: extRoot,
   makeId: function () { return 'q' + (++idCounter); },
   onChange: renderQueue,
-  fetchInfo: function (url, cb) { metadata.fetchInfo(url, extRoot, cb); },
+  fetchInfo: function (url, cb) {
+    metadata.fetchInfo(url, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, cb);
+  },
   resolveOutputDir: resolveOutputDir,
   importFile: importFile,
   download: engine.download,
   titleConcurrency: 4
 });
 
-function badge(it) {
-  switch (it.status) {
-    case 'pending': return 'Waiting…';
-    case 'fetching-info': return 'Getting title…';
-    case 'queued': return 'Queued';
-    case 'downloading': return it.statusMsg || 'Downloading…';
-    case 'done': return '✓ ' + (it.statusMsg || 'Done');
-    case 'error': return '⚠ ' + (it.statusMsg || 'Failed');
-    case 'canceled': return 'Canceled';
-    default: return it.status;
-  }
-}
 function renderQueue(items) {
-  var el = $('queueList');
-  if (!items.length) { el.innerHTML = '<div class="empty">Nothing queued yet.</div>'; return; }
-  el.innerHTML = '';
-  items.forEach(function (it) {
-    var row = document.createElement('div');
-    row.className = 'qitem' + (it.status === 'downloading' ? ' active' : '');
-    var dur = it.durationSec != null ? timecode.secondsToHMS(it.durationSec) : '';
-    var statusClass = it.status === 'error' ? ' error' : (it.status === 'done' ? ' done' : '');
-    var showProgress = it.status === 'downloading';
-    var btn = it.status === 'downloading'
-      ? '<button class="qbtn" data-cancel="' + it.id + '" title="Cancel">✕</button>'
-      : '<button class="qbtn" data-remove="' + it.id + '" title="Remove">🗑</button>';
-    row.innerHTML =
-      '<div class="qtop"><span class="qtitle">' + escHtml(it.title || it.url) + '</span>' +
-      '<span class="qdur">' + dur + '</span></div>' +
-      (showProgress ? '<div class="progress-track"><div class="progress-bar" style="width:' + (it.progress || 0) + '%"></div></div>' : '') +
-      '<div class="qmeta"><span class="qstatus' + statusClass + '">' + escHtml(badge(it)) + '</span>' + btn + '</div>';
-    el.appendChild(row);
-  });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-cancel]'), function (b) {
-    b.addEventListener('click', function () { queue.cancel(b.getAttribute('data-cancel')); });
-  });
-  Array.prototype.forEach.call(el.querySelectorAll('[data-remove]'), function (b) {
-    b.addEventListener('click', function () { queue.remove(b.getAttribute('data-remove')); });
+  $('queueCount').textContent = queueRender.summary(items);
+  queueRender.render(document, $('queueList'), items, {
+    cancel: function (id) { queue.cancel(id); },
+    remove: function (id) { queue.remove(id); },
+    retry: function (id) { queue.retry(id); },
+    reveal: function (id) {
+      var its = queue.getItems();
+      for (var i = 0; i < its.length; i++) {
+        if (its[i].id === id && its[i].outputPath) revealFile(its[i].outputPath);
+      }
+    }
   });
 }
 
+// ---------- Setup health banner ----------
+function checkSetup() {
+  var missing = [];
+  if (!binaries.resolveBinary('yt-dlp', { extRoot: extRoot })) missing.push('yt-dlp');
+  if (!binaries.resolveBinary('ffmpeg', { extRoot: extRoot })) missing.push('ffmpeg');
+  var banner = $('setupBanner');
+  if (!missing.length) { banner.classList.add('hidden'); return; }
+  banner.classList.remove('hidden');
+  $('setupBannerText').textContent = missing.join(' and ') + ' missing — downloads will fail.';
+  $('setupFixBtn').classList.toggle('hidden', missing.indexOf('yt-dlp') === -1);
+}
+$('setupFixBtn').addEventListener('click', function () {
+  $('setupBannerText').textContent = 'Downloading yt-dlp…';
+  $('setupFixBtn').disabled = true;
+  binaries.updateYtDlp(function (err) {
+    $('setupFixBtn').disabled = false;
+    if (err) { $('setupBannerText').textContent = 'Download failed: ' + err.message; return; }
+    checkSetup();
+    if (!binaries.resolveBinary('ffmpeg', { extRoot: extRoot })) {
+      $('setupBannerText').textContent = 'ffmpeg still missing — re-run the installer.';
+    }
+  });
+});
+
 // ---------- View switching ----------
 $('settingsBtn').addEventListener('click', showSettings);
+$('destChange').addEventListener('click', function (e) { e.preventDefault(); showSettings(); });
 $('backBtn').addEventListener('click', function () { $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden'); });
 
 // ---------- Quality => format toggle ----------
@@ -101,40 +112,83 @@ $('quality').addEventListener('change', function () {
   $('audioFormat').classList.toggle('hidden', !audio);
 });
 
-// ---------- Clip toggle => set up slider for the single URL ----------
-$('clipEnabled').addEventListener('change', function () {
-  $('clipRow').classList.toggle('hidden', !this.checked);
-  if (this.checked) setupClip();
-});
-function singleUrlOrNull() {
+// ---------- URL field: live meta line + clip availability ----------
+function updateUrlMeta() {
   var list = urls.parse($('url').value);
-  return list.length === 1 ? list[0] : null;
+  var meta = $('urlMeta');
+  $('addBtn').textContent = list.length > 1 ? 'Add ' + list.length + ' to Queue' : 'Add to Queue';
+  if (!list.length) { meta.innerHTML = ''; updateClipAvailability(list); return; }
+
+  var counts = {}, order = [];
+  list.forEach(function (u) {
+    var s = urls.source(u);
+    if (!counts[s.label]) { counts[s.label] = 0; order.push(s); }
+    counts[s.label]++;
+  });
+  var bits = order.map(function (s) {
+    return s.label + (counts[s.label] > 1 ? ' ×' + counts[s.label] : '');
+  });
+  var html = list.length + (list.length === 1 ? ' link' : ' links') + ' — ' + bits.join(', ');
+  var needsCookies = order.some(function (s) { return urls.usuallyNeedsCookies(s.key); });
+  if (needsCookies && state.settings.cookiesBrowser === 'none') {
+    html += ' <span class="warn">· may need browser cookies (Settings)</span>';
+  }
+  meta.innerHTML = html;
+  updateClipAvailability(list);
 }
-function setupClip() {
-  $('clipSlider').innerHTML = '';
-  $('clipManual').classList.add('hidden');
-  clip.slider = null; clip.durationSec = null;
-  var one = singleUrlOrNull();
-  if (!one) { $('clipSlider').innerHTML = '<div class="empty">Add a single URL to trim it.</div>'; return; }
+$('url').addEventListener('input', updateUrlMeta);
+
+// ---------- Clip section ----------
+function updateClipAvailability(list) {
+  var single = list.length === 1;
+  $('clipHint').textContent = single ? '' : '(single link only)';
+  if (!single && $('clipEnabled').checked) {
+    $('clipEnabled').checked = false;
+    $('clipRow').classList.add('hidden');
+  }
+}
+$('clipEnabled').addEventListener('change', function () {
+  var list = urls.parse($('url').value);
+  if (this.checked && list.length !== 1) {
+    this.checked = false;
+    $('topStatus').textContent = 'Trimming works with a single link — paste one URL.';
+    return;
+  }
+  $('topStatus').textContent = '';
+  $('clipRow').classList.toggle('hidden', !this.checked);
+  if (this.checked) setupClip(list[0]);
+});
+
+function setManualTimes(s, e) {
+  $('startTime').value = timecode.secondsToHMS(s);
+  $('endTime').value = timecode.secondsToHMS(e);
+}
+function setupClip(oneUrl) {
   $('clipSlider').innerHTML = '<div class="empty">Reading video length…</div>';
-  metadata.fetchInfo(one, extRoot, function (err, info) {
+  clip.slider = null; clip.durationSec = null;
+  metadata.fetchInfo(oneUrl, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, function (err, info) {
     if (err || !info.durationSec) {
-      $('clipSlider').innerHTML = '<div class="empty">Couldn\'t read length — enter manually:</div>';
-      $('clipManual').classList.remove('hidden');
+      $('clipSlider').innerHTML = '<div class="empty">Couldn\'t read the length — type the times below.</div>';
       return;
     }
     clip.durationSec = info.durationSec;
-    clip.startSec = 0; clip.endSec = info.durationSec;
-    clip.slider = rangeSlider.create(document, $('clipSlider'), info.durationSec, function (s, e) {
-      clip.startSec = s; clip.endSec = e;
-    });
+    setManualTimes(0, info.durationSec);
+    clip.slider = rangeSlider.create(document, $('clipSlider'), info.durationSec, setManualTimes);
   });
 }
+function manualTimesChanged() {
+  var s = timecode.parseFlexible($('startTime').value);
+  var e = timecode.parseFlexible($('endTime').value);
+  if (s == null || e == null) return;
+  if (clip.slider) clip.slider.setRange(s, e); // slider re-syncs the fields, clamped
+}
+$('startTime').addEventListener('change', manualTimesChanged);
+$('endTime').addEventListener('change', manualTimesChanged);
 
 // ---------- Paste button + keyboard shortcuts ----------
 $('pasteBtn').addEventListener('click', function () {
   var t = clipboard.read();
-  if (t) $('url').value = t.replace(/^\s+|\s+$/g, '');
+  if (t) { $('url').value = t.replace(/^\s+|\s+$/g, ''); updateUrlMeta(); }
 });
 document.addEventListener('keydown', function (e) {
   var action = editKeys.editAction(e);
@@ -159,6 +213,7 @@ document.addEventListener('keydown', function (e) {
     var c = editKeys.applyCut(el.value, start, end);
     clipboard.write(c.removed); el.value = c.value; el.setSelectionRange(c.caret, c.caret);
   }
+  if (el.id === 'url') updateUrlMeta();
 });
 
 // ---------- Settings ----------
@@ -171,8 +226,8 @@ function applySettingsToUI() {
   $('videoFormat').classList.toggle('hidden', audio);
   $('audioFormat').classList.toggle('hidden', !audio);
   $('destHint').textContent = s.destinationMode === 'sync'
-    ? 'Saving to: "' + s.binName + '" folder next to the project'
-    : 'Saving to: ' + s.customFolder;
+    ? 'Saving to "' + s.binName + '" next to the project'
+    : 'Saving to ' + (s.customFolder || 'custom folder');
 }
 function showSettings() {
   var s = state.settings;
@@ -180,6 +235,8 @@ function showSettings() {
   for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === s.destinationMode);
   $('customFolder').value = s.customFolder || '';
   $('binName').value = s.binName;
+  $('cookiesBrowser').value = s.cookiesBrowser || 'none';
+  $('trimMode').value = s.trimMode || 'fast';
   $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
   $('updateStatus').textContent = '';
   $('mainView').classList.add('hidden'); $('settingsView').classList.remove('hidden');
@@ -198,7 +255,8 @@ function showSettings() {
     $('updateStatus').textContent = 'Updating yt-dlp…'; $('updateYtdlpBtn').disabled = true;
     binaries.updateYtDlp(function (err, dest) {
       $('updateYtdlpBtn').disabled = false;
-      $('updateStatus').textContent = err ? ('Update failed: ' + err.message) : ('Updated: ' + dest);
+      $('updateStatus').textContent = err ? ('Update failed: ' + err.message) : 'Updated ✓';
+      checkSetup();
     });
   });
   $('saveSettingsBtn').addEventListener('click', function () {
@@ -207,8 +265,11 @@ function showSettings() {
     state.settings.destinationMode = mode;
     state.settings.customFolder = $('customFolder').value;
     state.settings.binName = $('binName').value || 'Downloaded Video';
+    state.settings.cookiesBrowser = $('cookiesBrowser').value;
+    state.settings.trimMode = $('trimMode').value;
     settingsMod.save(state.settings);
     applySettingsToUI();
+    updateUrlMeta();
     $('settingsView').classList.add('hidden'); $('mainView').classList.remove('hidden');
   });
 })();
@@ -219,12 +280,14 @@ function currentOpts(allowClip) {
     quality: $('quality').value,
     videoFormat: $('videoFormat').value,
     audioFormat: $('audioFormat').value,
+    cookiesBrowser: state.settings.cookiesBrowser,
+    trimMode: state.settings.trimMode,
     clipEnabled: false
   };
   if (allowClip && $('clipEnabled').checked) {
-    var startSec, endSec;
+    var startSec = timecode.parseFlexible($('startTime').value);
+    var endSec = timecode.parseFlexible($('endTime').value);
     if (clip.slider) { var r = clip.slider.getRange(); startSec = r.start; endSec = r.end; }
-    else { startSec = timecode.parseFlexible($('startTime').value); endSec = timecode.parseFlexible($('endTime').value); }
     if (startSec != null && endSec != null && endSec > startSec) {
       o.clipEnabled = true;
       o.startTime = timecode.secondsToHMS(startSec);
@@ -243,7 +306,7 @@ function persistLastOptions(o) {
 // ---------- Add to queue ----------
 $('addBtn').addEventListener('click', function () {
   var list = urls.parse($('url').value);
-  if (!list.length) { $('topStatus').textContent = 'Paste at least one video URL.'; return; }
+  if (!list.length) { $('topStatus').textContent = 'Paste at least one video link first.'; return; }
   var single = list.length === 1;
   var opts = currentOpts(single);
   persistLastOptions(opts);
@@ -259,6 +322,7 @@ $('addBtn').addEventListener('click', function () {
       $('topStatus').textContent = '';
       $('url').value = '';
       $('clipEnabled').checked = false; $('clipRow').classList.add('hidden');
+      updateUrlMeta();
     }
   }
 
@@ -266,11 +330,14 @@ $('addBtn').addEventListener('click', function () {
     var kind = urls.classify(u);
     if (kind === 'playlist' || kind === 'channel') {
       $('topStatus').textContent = 'Expanding playlist…';
-      metadata.expandPlaylist(u, extRoot, function (err, entries) {
+      metadata.expandPlaylist(u, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, function (err, entries) {
         if (err || !entries.length) { $('topStatus').textContent = 'Playlist error: ' + (err ? err.message : 'empty'); done(); return; }
         if (entries.length >= 50 && !window.confirm('This playlist has ' + entries.length + ' videos. Add all of them?')) { done(); return; }
         entries.forEach(function (en) {
-          toAdd.push({ url: en.url, opts: { quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat, clipEnabled: false } });
+          toAdd.push({ url: en.url, opts: {
+            quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat,
+            cookiesBrowser: opts.cookiesBrowser, trimMode: opts.trimMode, clipEnabled: false
+          } });
         });
         done();
       });
@@ -285,4 +352,6 @@ $('clearDoneBtn').addEventListener('click', function () { queue.clearDone(); });
 
 // ---------- Init ----------
 applySettingsToUI();
+updateUrlMeta();
 renderQueue(queue.getItems());
+checkSetup();

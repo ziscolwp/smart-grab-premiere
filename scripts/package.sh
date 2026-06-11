@@ -115,6 +115,7 @@ fail() { echo "✗ $1" >&2; exit 1; }
 [ ! -d "$CHECK/win/SmartGrab/panel/bin" ] || fail "binaries leaked into win zip"
 [ ! -f "$CHECK/mac/SmartGrab/panel/.debug" ] || fail ".debug leaked into mac zip"
 grep -q $'\r' "$CHECK/win/SmartGrab/install.bat" || fail "install.bat is not CRLF"
+grep -q $'\r' "$CHECK/win/SmartGrab/install.ps1" || fail "install.ps1 is not CRLF"
 grep -q "ExtensionBundleVersion=\"$VERSION\"" "$CHECK/mac/SmartGrab/panel/CSXS/manifest.xml" \
   || fail "manifest version != package.json version"
 

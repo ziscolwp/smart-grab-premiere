@@ -103,6 +103,61 @@ test('buildYtDlpArgs: noPlaylist false drops the flag (playlist entries)', () =>
   assert.strictEqual(args.indexOf('--no-playlist'), -1);
 });
 
+test('buildYtDlpArgs: warnings are NOT suppressed (needed for diagnostics)', () => {
+  const args = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere' }, '/t', '/f', 'U');
+  assert.strictEqual(args.indexOf('--no-warnings'), -1);
+});
+
+test('pairLeftoverStreams: identifies video + audio pair', () => {
+  const pair = L.pairLeftoverStreams([
+    { name: 'a.m4a', vcodec: '', acodec: 'aac' },
+    { name: 'v.mp4', vcodec: 'h264', acodec: '' }
+  ]);
+  assert.strictEqual(pair.video.name, 'v.mp4');
+  assert.strictEqual(pair.audio.name, 'a.m4a');
+});
+test('pairLeftoverStreams: muxed video counts as the video side', () => {
+  const pair = L.pairLeftoverStreams([
+    { name: 'v.mp4', vcodec: 'h264', acodec: 'aac' },
+    { name: 'a.m4a', vcodec: '', acodec: 'aac' }
+  ]);
+  assert.strictEqual(pair.video.name, 'v.mp4');
+});
+test('pairLeftoverStreams: rejects two videos, two audios, or wrong count', () => {
+  assert.strictEqual(L.pairLeftoverStreams([
+    { name: 'a.mp4', vcodec: 'h264', acodec: '' },
+    { name: 'b.mp4', vcodec: 'h264', acodec: '' }
+  ]), null);
+  assert.strictEqual(L.pairLeftoverStreams([
+    { name: 'a.m4a', vcodec: '', acodec: 'aac' },
+    { name: 'b.m4a', vcodec: '', acodec: 'opus' }
+  ]), null);
+  assert.strictEqual(L.pairLeftoverStreams([{ name: 'x', vcodec: 'h264', acodec: 'aac' }]), null);
+  assert.strictEqual(L.pairLeftoverStreams(null), null);
+});
+
+test('selfMergeArgs: copies both streams when audio fits the container', () => {
+  assert.deepStrictEqual(
+    L.selfMergeArgs('/t/v.mp4', '/t/a.m4a', 'aac', 'mp4', '/t/out.mp4'),
+    ['-y', '-i', '/t/v.mp4', '-i', '/t/a.m4a', '-map', '0:v:0', '-map', '1:a:0',
+     '-c:v', 'copy', '-c:a', 'copy', '-movflags', '+faststart', '/t/out.mp4']
+  );
+});
+test('selfMergeArgs: transcodes opus audio for mp4, copies it for mkv', () => {
+  const mp4 = L.selfMergeArgs('/v', '/a', 'opus', 'mp4', '/o.mp4');
+  assert.strictEqual(mp4[mp4.indexOf('-c:a') + 1], 'aac');
+  const mkv = L.selfMergeArgs('/v', '/a', 'opus', 'mkv', '/o.mkv');
+  assert.strictEqual(mkv[mkv.indexOf('-c:a') + 1], 'copy');
+  assert.strictEqual(mkv.indexOf('-movflags'), -1);
+});
+
+test('stripFormatSuffix removes yt-dlp format-id suffixes only', () => {
+  assert.strictEqual(L.stripFormatSuffix('Title [abc].f401'), 'Title [abc]');
+  assert.strictEqual(L.stripFormatSuffix('Title [abc].fhls-audio-32000'), 'Title [abc]');
+  assert.strictEqual(L.stripFormatSuffix('Title [abc]'), 'Title [abc]');
+  assert.strictEqual(L.stripFormatSuffix('My film. final [abc]'), 'My film. final [abc]');
+});
+
 test('outputFileName: plain video', () => {
   assert.strictEqual(
     L.outputFileName('My Video', { quality: 'fhd', videoFormat: 'mp4Premiere' }),

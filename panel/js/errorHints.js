@@ -59,7 +59,10 @@ var RULES = [
     hint: 'Wait until the stream has finished, then grab the VOD.' },
   { re: /could not copy chrome cookie|could not find .* cookies|cookies.*(locked|denied|decrypt)/i,
     message: 'Could not read browser cookies.',
-    hint: 'Fully quit the browser and retry, or pick a different browser in Settings.' }
+    hint: 'Fully quit the browser and retry, or pick a different browser in Settings.' },
+  { re: /requested merging of multiple formats but ffmpeg|ffmpeg (is )?not installed|ffmpeg not found/i,
+    message: 'ffmpeg was not usable, so video and audio could not be merged.',
+    hint: 'Re-run the installer to refresh ffmpeg, then retry this item.' }
 ];
 
 // friendly(rawText) -> { message, hint } | null

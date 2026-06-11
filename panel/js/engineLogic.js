@@ -52,7 +52,9 @@ function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
   args = args.concat([
     '--newline',
     '--progress-template', PROGRESS_TEMPLATE,
-    '--no-warnings',
+    // No --no-warnings here: warnings like "ffmpeg is not installed" are the
+    // diagnostic when something downstream misbehaves; the run() ring buffer
+    // keeps them for error reports.
     '--windows-filenames',
     '--ffmpeg-location', ffmpegDir,
     '--retries', '10',
@@ -143,6 +145,37 @@ function choosePostProcess(p, src, dest) {
            args: ['-y', '-i', src, '-c', 'copy', dest] };
 }
 
+// When yt-dlp exits 0 but leaves separate streams (its merge silently skipped),
+// identify the video/audio pair so the engine can merge them itself.
+// entries: [{ name, vcodec, acodec }] (codecs '' when the stream is absent)
+function pairLeftoverStreams(entries) {
+  if (!entries || entries.length !== 2) return null;
+  var video = null, audio = null;
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    if (e.vcodec && !video) video = e;
+    else if (!e.vcodec && e.acodec && !audio) audio = e;
+  }
+  return (video && audio) ? { video: video, audio: audio } : null;
+}
+
+// ffmpeg args for the self-merge. Streams are copied; audio is transcoded to
+// AAC only when the target container can't hold it (e.g. opus -> mp4).
+function selfMergeArgs(videoPath, audioPath, acodec, container, outPath) {
+  var args = ['-y', '-i', videoPath, '-i', audioPath, '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy'];
+  var mp4Like = container === 'mp4' || container === 'mov';
+  var audioOk = !mp4Like || acodec === 'aac' || acodec === 'mp3';
+  args = args.concat(audioOk ? ['-c:a', 'copy'] : ['-c:a', 'aac']);
+  if (mp4Like) args = args.concat(['-movflags', '+faststart']);
+  args.push(outPath);
+  return args;
+}
+
+// Unmerged stream files carry yt-dlp's format-id suffix ("Title [id].f401").
+function stripFormatSuffix(stem) {
+  return String(stem).replace(/\.f[a-z0-9_-]+$/i, '');
+}
+
 // Parses yt-dlp progress output. Primary path is our machine-readable
 // --progress-template ("SG|  42.5%| 1.05MiB/s|00:45"); the [download] form
 // is kept as a fallback for phases the template doesn't cover.
@@ -200,5 +233,8 @@ module.exports = {
   targetExt: targetExt,
   outputFileName: outputFileName,
   choosePostProcess: choosePostProcess,
+  pairLeftoverStreams: pairLeftoverStreams,
+  selfMergeArgs: selfMergeArgs,
+  stripFormatSuffix: stripFormatSuffix,
   parseProgress: parseProgress
 };

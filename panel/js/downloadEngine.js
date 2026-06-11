@@ -66,11 +66,11 @@ function download(opts, callbacks, cb) {
   if (!ytdlp) return cb(new Error('yt-dlp not found. Click "Update yt-dlp" in Settings or re-run the installer.'));
   if (!ffmpeg) return cb(new Error('ffmpeg not found. Re-run the installer.'));
   var ffprobe = binaries.resolveBinary('ffprobe', { extRoot: opts.extRoot }) || ffmpeg;
-  var ffmpegDir = path.dirname(ffmpeg);
   var env = binaries.augmentedEnv(process.env);
-  // yt-dlp looks for helper binaries (deno for YouTube's JS challenges) on
-  // PATH — make sure its own folder is there.
-  env.PATH = path.dirname(ytdlp) + (process.platform === 'win32' ? ';' : ':') + env.PATH;
+  // yt-dlp looks for helper binaries (deno for YouTube's JS challenges, ffmpeg
+  // as PATH fallback) on PATH — make sure their folders are there.
+  var sep = process.platform === 'win32' ? ';' : ':';
+  env.PATH = path.dirname(ytdlp) + sep + path.dirname(ffmpeg) + sep + env.PATH;
 
   var tmp = path.join(os.tmpdir(), 'smartgrab-' + uuidish());
   try {
@@ -89,7 +89,9 @@ function download(opts, callbacks, cb) {
   function attemptDownload(sectionsAllowed, attemptCb) {
     var attemptOpts = sectionsAllowed ? opts : Object.assign({}, opts, { trimMode: 'precise' });
     var sectionsUsed = L.useSections(attemptOpts);
-    var args = L.buildYtDlpArgs(attemptOpts, tmp, ffmpegDir, opts.url);
+    // Full binary path (not its directory) — leaves yt-dlp no room to
+    // mis-resolve ffmpeg and silently skip merging.
+    var args = L.buildYtDlpArgs(attemptOpts, tmp, ffmpeg, opts.url);
     run(ytdlp, args, env, function (line) {
       var p = L.parseProgress(line);
       if (p) onProgress(p.percent, p.status);
@@ -115,6 +117,22 @@ function download(opts, callbacks, cb) {
     });
   }
 
+  function probeStreams(name, done) {
+    var f = path.join(tmp, name);
+    probeCodec(ffprobe, f, 'v:0', env, function (vc) {
+      probeCodec(ffprobe, f, 'a:0', env, function (ac) {
+        done({ name: name, vcodec: vc, acodec: ac });
+      });
+    });
+  }
+
+  function failUnmergeable(n) {
+    cleanup();
+    var err = new Error('yt-dlp left ' + n + ' files that could not be combined into one video.');
+    err.hint = 'Re-run the installer to refresh ffmpeg, then retry this item.';
+    cb(err);
+  }
+
   function postProcess(sectionsUsed) {
     var files;
     try {
@@ -124,14 +142,42 @@ function download(opts, callbacks, cb) {
     } catch (e) { cleanup(); return cb(e); }
 
     if (files.length === 0) { cleanup(); return cb(new Error('Download failed — no output file.')); }
-    if (files.length > 1) {
-      cleanup();
-      return cb(new Error('Merge failed — yt-dlp left ' + files.length + ' separate streams. ffmpeg may not be reachable.'));
-    }
+    if (files.length === 1) return proceedSingle(files[0], sectionsUsed);
 
-    var name = files[0];
+    // yt-dlp exited 0 but left separate streams: its merge step was silently
+    // skipped (it decided ffmpeg wasn't usable). Merge them ourselves —
+    // stream copy, so this costs seconds, not a re-encode.
+    if (files.length === 2 && !audioOnly) {
+      onProgress(null, 'Merging streams...');
+      return probeStreams(files[0], function (a) {
+        probeStreams(files[1], function (b) {
+          var pair = L.pairLeftoverStreams([a, b]);
+          if (!pair) return failUnmergeable(2);
+          var container = opts.videoFormat === 'mkv' ? 'mkv' : 'mp4';
+          var vStem = path.basename(pair.video.name, path.extname(pair.video.name));
+          var outName = L.stripFormatSuffix(vStem) + '.' + container;
+          if (outName === pair.video.name || outName === pair.audio.name) outName = 'merged-' + outName;
+          var margs = L.selfMergeArgs(
+            path.join(tmp, pair.video.name), path.join(tmp, pair.audio.name),
+            pair.audio.acodec, container, path.join(tmp, outName)
+          );
+          run(ffmpeg, margs, env, null, onProc, function (merr) {
+            if (merr) { cleanup(); return cb(merr); }
+            try {
+              fs.rmSync(path.join(tmp, pair.video.name));
+              fs.rmSync(path.join(tmp, pair.audio.name));
+            } catch (e) { cleanup(); return cb(e); }
+            proceedSingle(outName, sectionsUsed);
+          });
+        });
+      });
+    }
+    failUnmergeable(files.length);
+  }
+
+  function proceedSingle(name, sectionsUsed) {
     var src = path.join(tmp, name);
-    var stem = path.basename(name, path.extname(name));
+    var stem = L.stripFormatSuffix(path.basename(name, path.extname(name)));
     var srcExt = path.extname(name).replace('.', '').toLowerCase();
     var tgtExt = L.targetExt(opts);
     var dest = path.join(opts.outputDir, L.outputFileName(stem, opts));

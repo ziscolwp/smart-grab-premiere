@@ -37,6 +37,15 @@ function useSections(opts) {
   return !!(opts.clipEnabled && opts.endTime && opts.trimMode !== 'precise');
 }
 
+// Auth cookies for yt-dlp. A cookies.txt file is the most robust method (works
+// on Windows where Chrome cookies can't be read, and avoids keychain prompts),
+// so it wins over the live-browser method when both are set.
+function cookieArgs(cookiesBrowser, cookiesFile) {
+  if (cookiesFile) return ['--cookies', cookiesFile];
+  if (cookiesBrowser && cookiesBrowser !== 'none') return ['--cookies-from-browser', cookiesBrowser];
+  return [];
+}
+
 // opts: { quality, videoFormat, audioFormat, clipEnabled, startTime, endTime,
 //         trimMode, cookiesBrowser, noPlaylist, platform }
 var PROGRESS_TEMPLATE = 'download:SG|%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s';
@@ -65,9 +74,8 @@ function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
     '--retry-sleep', 'extractor:5'
   ]);
   if (opts.noPlaylist !== false) args.push('--no-playlist');
-  if (opts.cookiesBrowser && opts.cookiesBrowser !== 'none') {
-    args.push('--cookies-from-browser', opts.cookiesBrowser);
-  }
+  args = args.concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
+  if (opts.referer) args.push('--referer', opts.referer);
   if (useSections(opts)) {
     args.push('--download-sections', '*' + (opts.startTime || '0') + '-' + opts.endTime);
   }
@@ -229,6 +237,7 @@ module.exports = {
   formatSort: formatSort,
   videoFormatInfo: videoFormatInfo,
   useSections: useSections,
+  cookieArgs: cookieArgs,
   buildYtDlpArgs: buildYtDlpArgs,
   targetExt: targetExt,
   outputFileName: outputFileName,

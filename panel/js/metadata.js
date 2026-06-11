@@ -2,6 +2,7 @@
 // Title/duration/thumbnail + playlist expansion via yt-dlp (per-URL invocations for clean mapping).
 var childProcess = require('child_process');
 var binaries = require('./binaries.js');
+var L = require('./engineLogic.js');
 
 var INFO_TEMPLATE = '%(title)s\t%(duration)s\t%(thumbnail)s\t%(extractor_key)s\t%(uploader)s';
 
@@ -10,9 +11,9 @@ function firstErrLine(err) {
   return lines.length ? lines[lines.length - 1].replace(/^ERROR:\s*/, '') : '';
 }
 
-function cookieArgs(cookiesBrowser) {
-  if (!cookiesBrowser || cookiesBrowser === 'none') return [];
-  return ['--cookies-from-browser', cookiesBrowser];
+// Thin wrapper so metadata calls share the engine's cookie precedence rules.
+function cookieArgs(cookiesBrowser, cookiesFile) {
+  return L.cookieArgs(cookiesBrowser, cookiesFile);
 }
 
 // Pure: parse one INFO_TEMPLATE line into the info object (exported for tests).
@@ -35,7 +36,7 @@ function fetchInfo(url, opts, cb) {
   var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
   var args = ['--no-playlist', '--no-warnings', '--print', INFO_TEMPLATE]
-    .concat(cookieArgs(opts.cookiesBrowser));
+    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
   args.push(url);
   var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';
@@ -54,7 +55,7 @@ function expandPlaylist(url, opts, cb) {
   var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
   var args = ['--flat-playlist', '--no-warnings', '--print', '%(id)s\t%(title)s\t%(url)s']
-    .concat(cookieArgs(opts.cookiesBrowser));
+    .concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
   args.push(url);
   var p = childProcess.spawn(bin, args, { env: binaries.augmentedEnv(process.env) });
   var out = '', err = '';

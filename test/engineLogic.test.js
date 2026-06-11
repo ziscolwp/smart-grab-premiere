@@ -85,6 +85,29 @@ test('buildYtDlpArgs: cookies-from-browser only when a browser is chosen', () =>
   assert.strictEqual(without.indexOf('--cookies-from-browser'), -1);
 });
 
+test('cookieArgs: file wins over browser, browser when no file, nothing otherwise', () => {
+  assert.deepStrictEqual(L.cookieArgs('chrome', '/c.txt'), ['--cookies', '/c.txt']);
+  assert.deepStrictEqual(L.cookieArgs('chrome', ''), ['--cookies-from-browser', 'chrome']);
+  assert.deepStrictEqual(L.cookieArgs('none', ''), []);
+  assert.deepStrictEqual(L.cookieArgs(undefined, undefined), []);
+});
+
+test('buildYtDlpArgs: cookies file takes precedence over browser', () => {
+  const args = L.buildYtDlpArgs(
+    { quality: 'fhd', videoFormat: 'mp4Premiere', cookiesBrowser: 'chrome', cookiesFile: '/c.txt' },
+    '/t', '/f', 'U'
+  );
+  assert.strictEqual(argValue(args, '--cookies'), '/c.txt');
+  assert.strictEqual(args.indexOf('--cookies-from-browser'), -1);
+});
+
+test('buildYtDlpArgs: referer passed through when set', () => {
+  const args = L.buildYtDlpArgs(
+    { quality: 'fhd', videoFormat: 'mp4Premiere', referer: 'https://site.example/' }, '/t', '/f', 'U'
+  );
+  assert.strictEqual(argValue(args, '--referer'), 'https://site.example/');
+});
+
 test('buildYtDlpArgs: fast clip adds --download-sections; precise does not', () => {
   const fast = L.buildYtDlpArgs(
     { quality: 'fhd', videoFormat: 'mp4Premiere', clipEnabled: true, startTime: '00:00:10', endTime: '00:01:00' },

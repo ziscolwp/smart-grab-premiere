@@ -16,6 +16,7 @@ var DEFAULTS = {
   lastVideoFormat: 'mp4Premiere',
   lastAudioFormat: 'mp3',
   cookiesBrowser: 'none',                                    // 'none' | 'chrome' | 'firefox' | 'edge' | 'safari' | 'brave'
+  cookiesFile: '',                                           // path to a Netscape cookies.txt (overrides cookiesBrowser when set)
   trimMode: 'fast'                                           // 'fast' (download only the section) | 'precise' (full download + local trim)
 };
 

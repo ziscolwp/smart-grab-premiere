@@ -21,6 +21,12 @@ var clip = { slider: null, durationSec: null };
 
 function evalJSX(fnCall, cb) { cs.evalScript(fnCall, cb); }
 function jsStr(s) { return JSON.stringify(String(s)); }
+function cookieOpts() {
+  return { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser, cookiesFile: state.settings.cookiesFile };
+}
+function cookiesActive() {
+  return !!state.settings.cookiesFile || (state.settings.cookiesBrowser && state.settings.cookiesBrowser !== 'none');
+}
 
 // ---------- Premiere bridge ----------
 function resolveOutputDir(opts, cb) {
@@ -53,7 +59,7 @@ var queue = queueMod.createQueue({
   makeId: function () { return 'q' + (++idCounter); },
   onChange: renderQueue,
   fetchInfo: function (url, cb) {
-    metadata.fetchInfo(url, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, cb);
+    metadata.fetchInfo(url, cookieOpts(), cb);
   },
   resolveOutputDir: resolveOutputDir,
   importFile: importFile,
@@ -130,7 +136,7 @@ function updateUrlMeta() {
   });
   var html = list.length + (list.length === 1 ? ' link' : ' links') + ' — ' + bits.join(', ');
   var needsCookies = order.some(function (s) { return urls.usuallyNeedsCookies(s.key); });
-  if (needsCookies && state.settings.cookiesBrowser === 'none') {
+  if (needsCookies && !cookiesActive()) {
     html += ' <span class="warn">· may need browser cookies (Settings)</span>';
   }
   meta.innerHTML = html;
@@ -166,7 +172,7 @@ function setManualTimes(s, e) {
 function setupClip(oneUrl) {
   $('clipSlider').innerHTML = '<div class="empty">Reading video length…</div>';
   clip.slider = null; clip.durationSec = null;
-  metadata.fetchInfo(oneUrl, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, function (err, info) {
+  metadata.fetchInfo(oneUrl, cookieOpts(), function (err, info) {
     if (err || !info.durationSec) {
       $('clipSlider').innerHTML = '<div class="empty">Couldn\'t read the length — type the times below.</div>';
       return;
@@ -229,13 +235,21 @@ function applySettingsToUI() {
     ? 'Saving to "' + s.binName + '" next to the project'
     : 'Saving to ' + (s.customFolder || 'custom folder');
 }
+function syncCookiesRows() {
+  var mode = $('cookiesMode').value;
+  $('cookiesBrowserRow').classList.toggle('hidden', mode !== 'browser');
+  $('cookiesFileRow').classList.toggle('hidden', mode !== 'file');
+}
 function showSettings() {
   var s = state.settings;
   var radios = document.getElementsByName('mode');
   for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === s.destinationMode);
   $('customFolder').value = s.customFolder || '';
   $('binName').value = s.binName;
-  $('cookiesBrowser').value = s.cookiesBrowser || 'none';
+  $('cookiesMode').value = s.cookiesFile ? 'file' : (s.cookiesBrowser && s.cookiesBrowser !== 'none' ? 'browser' : 'none');
+  $('cookiesBrowser').value = (s.cookiesBrowser && s.cookiesBrowser !== 'none') ? s.cookiesBrowser : 'chrome';
+  $('cookiesFile').value = s.cookiesFile || '';
+  syncCookiesRows();
   $('trimMode').value = s.trimMode || 'fast';
   $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
   $('updateStatus').textContent = '';
@@ -246,6 +260,13 @@ function showSettings() {
   for (var i = 0; i < radios.length; i++) {
     radios[i].addEventListener('change', function () { $('customRow').classList.toggle('hidden', this.value !== 'custom'); });
   }
+  $('cookiesMode').addEventListener('change', syncCookiesRows);
+  $('chooseCookiesBtn').addEventListener('click', function () {
+    evalJSX('sg_pickFile()', function (res) {
+      if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('cookiesFile').value = res;
+    });
+  });
+  $('clearCookiesBtn').addEventListener('click', function () { $('cookiesFile').value = ''; });
   $('chooseFolderBtn').addEventListener('click', function () {
     evalJSX('sg_pickFolder()', function (res) {
       if (res && res.indexOf('ERROR:') !== 0 && res !== 'CANCEL') $('customFolder').value = res;
@@ -265,7 +286,9 @@ function showSettings() {
     state.settings.destinationMode = mode;
     state.settings.customFolder = $('customFolder').value;
     state.settings.binName = $('binName').value || 'Downloaded Video';
-    state.settings.cookiesBrowser = $('cookiesBrowser').value;
+    var cmode = $('cookiesMode').value;
+    state.settings.cookiesBrowser = cmode === 'browser' ? $('cookiesBrowser').value : 'none';
+    state.settings.cookiesFile = cmode === 'file' ? $('cookiesFile').value : '';
     state.settings.trimMode = $('trimMode').value;
     settingsMod.save(state.settings);
     applySettingsToUI();
@@ -281,6 +304,7 @@ function currentOpts(allowClip) {
     videoFormat: $('videoFormat').value,
     audioFormat: $('audioFormat').value,
     cookiesBrowser: state.settings.cookiesBrowser,
+    cookiesFile: state.settings.cookiesFile,
     trimMode: state.settings.trimMode,
     clipEnabled: false
   };
@@ -330,13 +354,13 @@ $('addBtn').addEventListener('click', function () {
     var kind = urls.classify(u);
     if (kind === 'playlist' || kind === 'channel') {
       $('topStatus').textContent = 'Expanding playlist…';
-      metadata.expandPlaylist(u, { extRoot: extRoot, cookiesBrowser: state.settings.cookiesBrowser }, function (err, entries) {
+      metadata.expandPlaylist(u, cookieOpts(), function (err, entries) {
         if (err || !entries.length) { $('topStatus').textContent = 'Playlist error: ' + (err ? err.message : 'empty'); done(); return; }
         if (entries.length >= 50 && !window.confirm('This playlist has ' + entries.length + ' videos. Add all of them?')) { done(); return; }
         entries.forEach(function (en) {
           toAdd.push({ url: en.url, opts: {
             quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat,
-            cookiesBrowser: opts.cookiesBrowser, trimMode: opts.trimMode, clipEnabled: false
+            cookiesBrowser: opts.cookiesBrowser, cookiesFile: opts.cookiesFile, trimMode: opts.trimMode, clipEnabled: false
           } });
         });
         done();

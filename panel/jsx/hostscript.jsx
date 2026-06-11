@@ -58,3 +58,13 @@ function sg_pickFolder() {
         return "ERROR:" + e.toString();
     }
 }
+
+function sg_pickFile() {
+    try {
+        var f = File.openDialog("Choose a cookies.txt file");
+        if (!f) return "CANCEL";
+        return f.fsName;
+    } catch (e) {
+        return "ERROR:" + e.toString();
+    }
+}

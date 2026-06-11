@@ -31,3 +31,8 @@ test('cookieArgs maps browser choice to yt-dlp flag', () => {
   assert.deepStrictEqual(M.cookieArgs('none'), []);
   assert.deepStrictEqual(M.cookieArgs(null), []);
 });
+
+test('cookieArgs: a cookies file overrides the browser choice', () => {
+  assert.deepStrictEqual(M.cookieArgs('chrome', '/path/cookies.txt'), ['--cookies', '/path/cookies.txt']);
+  assert.deepStrictEqual(M.cookieArgs('none', '/path/cookies.txt'), ['--cookies', '/path/cookies.txt']);
+});

@@ -106,17 +106,31 @@
     <label class="field-label" for="binName">Project bin / folder name</label>
     <input id="binName" type="text" value="Downloaded Video">
 
-    <label class="field-label" for="cookiesBrowser">Browser cookies</label>
-    <select id="cookiesBrowser">
+    <label class="field-label">Sign-in cookies <span class="field-note">for private / age-gated / member videos</span></label>
+    <select id="cookiesMode">
       <option value="none">Off</option>
-      <option value="chrome">Chrome</option>
-      <option value="firefox">Firefox</option>
-      <option value="edge">Edge</option>
-      <option value="safari">Safari</option>
-      <option value="brave">Brave</option>
+      <option value="browser">From a browser I'm logged into</option>
+      <option value="file">From a cookies.txt file (most reliable)</option>
     </select>
-    <div class="field-sub">Needed for Instagram, X and private/age-gated videos — pick a browser where you're logged in.
-      On Windows use Firefox (Chrome cookies can't be read there), and close the browser before downloading.</div>
+    <div id="cookiesBrowserRow" class="hidden">
+      <select id="cookiesBrowser">
+        <option value="chrome">Chrome</option>
+        <option value="firefox">Firefox</option>
+        <option value="edge">Edge</option>
+        <option value="safari">Safari</option>
+        <option value="brave">Brave</option>
+      </select>
+      <div class="field-sub">Close the browser before downloading. On Windows, Chrome cookies can't be read — use Firefox or the file option.</div>
+    </div>
+    <div id="cookiesFileRow" class="hidden">
+      <div class="row">
+        <input id="cookiesFile" type="text" readonly placeholder="No cookies.txt chosen">
+        <button id="chooseCookiesBtn">Browse…</button>
+        <button id="clearCookiesBtn" title="Clear">✕</button>
+      </div>
+      <div class="field-sub">Export with the “Get cookies.txt LOCALLY” browser extension while logged in, then pick the file here.
+        Works on every platform and won't break when the browser updates.</div>
+    </div>
 
     <label class="field-label" for="trimMode">Trim mode</label>
     <select id="trimMode">

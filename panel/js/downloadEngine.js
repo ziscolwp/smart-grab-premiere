@@ -7,6 +7,7 @@ var childProcess = require('child_process');
 var L = require('./engineLogic.js');
 var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
+var tiktok = require('./tiktok.js');
 
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
@@ -83,20 +84,49 @@ function download(opts, callbacks, cb) {
   var audioOnly = opts.quality === 'audioOnly';
   var vinfo = L.videoFormatInfo(opts.videoFormat);
 
+  // The URL yt-dlp actually fetches. Normally opts.url; if TikTok's native
+  // extraction is blocked on this network (see below) it becomes a direct CDN
+  // URL from the resolver, which we then download like any plain file.
+  var effectiveUrl = opts.url;
+  var triedResolver = false;
+  var resolvedTemplate = null;   // clean yt-dlp -o for the resolved CDN URL
+
   // First try the fast path (server-side --download-sections for clips).
   // If that yt-dlp run fails and sections were in play, retry once with a
   // full download + local trim — some sites/formats don't support sections.
   function attemptDownload(sectionsAllowed, attemptCb) {
     var attemptOpts = sectionsAllowed ? opts : Object.assign({}, opts, { trimMode: 'precise' });
+    if (resolvedTemplate) attemptOpts = Object.assign({}, attemptOpts, { outputTemplate: resolvedTemplate });
     var sectionsUsed = L.useSections(attemptOpts);
     // Full binary path (not its directory) — leaves yt-dlp no room to
     // mis-resolve ffmpeg and silently skip merging.
-    var args = L.buildYtDlpArgs(attemptOpts, tmp, ffmpeg, opts.url);
+    var args = L.buildYtDlpArgs(attemptOpts, tmp, ffmpeg, effectiveUrl);
     run(ytdlp, args, env, function (line) {
       var p = L.parseProgress(line);
       if (p) onProgress(p.percent, p.status);
     }, onProc, function (err) {
       attemptCb(err, sectionsUsed);
+    });
+  }
+
+  function freshTmp() {
+    try { fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp, { recursive: true }); } catch (e) {}
+  }
+
+  // yt-dlp couldn't fetch this TikTok directly (ISP block). Ask the resolver
+  // for a CDN URL on a non-blocked host and download THAT instead — as a plain
+  // file, so we go straight to the precise path (no server-side sections on a
+  // generic URL; clips are trimmed locally). Keeps the original error if the
+  // resolver can't help either.
+  function tryTikTokResolver(originalErr) {
+    triedResolver = true;
+    onProgress(0, 'TikTok blocked on this network — trying mirror…');
+    tiktok.resolve(opts.url, function (rerr, info) {
+      if (rerr || !info || !info.videoUrl) { cleanup(); return cb(originalErr); }
+      effectiveUrl = info.videoUrl;
+      resolvedTemplate = tiktok.outputTemplate(info, opts.url);
+      freshTmp();
+      startAttempt(false);
     });
   }
 
@@ -106,10 +136,11 @@ function download(opts, callbacks, cb) {
       if (err) {
         if (sectionsUsed) {
           // Clean the tmp dir and retry with a full download + local trim.
-          try { fs.rmSync(tmp, { recursive: true, force: true }); fs.mkdirSync(tmp, { recursive: true }); } catch (e) {}
+          freshTmp();
           onProgress(0, 'Fast trim unavailable — downloading full video...');
           return startAttempt(false);
         }
+        if (!triedResolver && tiktok.isTikTokUrl(opts.url)) return tryTikTokResolver(err);
         cleanup();
         return cb(err);
       }

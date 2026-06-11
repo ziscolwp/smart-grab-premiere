@@ -75,7 +75,7 @@ var PROGRESS_TEMPLATE = 'download:SG|%(progress._percent_str)s|%(progress._speed
 function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
   var args = [
     '-P', tmpDir,
-    '-o', '%(title).80B [%(id)s].%(ext)s',
+    '-o', opts.outputTemplate || '%(title).80B [%(id)s].%(ext)s',
     '-f', qualityToFormat(opts.quality)
   ];
   var sort = formatSort(opts.quality, opts.videoFormat);

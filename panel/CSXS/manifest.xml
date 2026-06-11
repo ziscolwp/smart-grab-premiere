@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="7.0" ExtensionBundleId="com.ziscol.smartgrab" ExtensionBundleVersion="3.1.0" ExtensionBundleName="SmartGrab" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.ziscol.smartgrab" ExtensionBundleVersion="3.2.0" ExtensionBundleName="SmartGrab" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
     <ExtensionList>
-        <Extension Id="com.ziscol.smartgrab.panel" Version="3.1.0" />
+        <Extension Id="com.ziscol.smartgrab.panel" Version="3.2.0" />
     </ExtensionList>
     <ExecutionEnvironment>
         <HostList>

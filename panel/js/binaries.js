@@ -279,5 +279,6 @@ module.exports = {
   updateYtDlp: updateYtDlp,
   ensureAll: ensureAll,
   repairAll: repairAll,
+  systemTool: systemTool,
   APP_SUPPORT_BIN: APP_SUPPORT_BIN
 };

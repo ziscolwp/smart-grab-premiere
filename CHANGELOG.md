@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.2.0 — 2026-06-12
+
+### Added
+- **TikTok works where it's blocked — automatically, no VPN.** When yt-dlp
+  can't reach TikTok directly (banned/ISP-blocked regions like India poison
+  its DNS and filter its traffic), the panel resolves the video through a
+  public mirror and downloads it from an unblocked CDN. Transparent: paste
+  the link, see *"TikTok blocked on this network — trying mirror…"*, done.
+  Resolved downloads get a clean `Title [id].mp4` filename, and the queue
+  shows the real title/thumbnail even when the direct fetch is blocked.
+  Clipping, format conversion, and import all work unchanged.
+
 ## 3.1.0 — 2026-06-12
 
 ### Added

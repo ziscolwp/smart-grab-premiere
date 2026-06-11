@@ -75,19 +75,23 @@ needs your login too. Settings ▸ Sign-in cookies ▸ *From a cookies.txt
 file* ▸ **Create from browser** does it in one click (close the browser
 first; on Windows use Firefox).
 
-**TikTok (or another site) fails with a network error, but my internet is fine.**
-Your ISP or country is blocking that site — TikTok is banned in India, for
-example, and Indian ISPs redirect it to a block page, so the download times
-out. A VPN browser extension won't help: it only covers the browser, not the
-panel. Either run a **system-wide VPN app** (set to cover all apps, not split
-tunnel), or set **Settings ▸ Proxy URL** to a proxy/VPN address — many VPN
-apps expose a local proxy like `socks5://127.0.0.1:1080` you can paste there.
+**Does TikTok work where it's banned (e.g. India)?**
+Yes, automatically. TikTok is blocked by many ISPs (in India it's banned, and
+providers poison its DNS and filter its traffic), so yt-dlp can't reach it
+directly — and a browser VPN extension won't help because it only covers the
+browser, not the panel. When the panel sees a TikTok link it can't fetch
+directly, it quietly resolves the video through a public mirror and downloads
+it from a CDN that isn't blocked. You just paste the link; no VPN, no setup.
+You'll briefly see *"TikTok blocked on this network — trying mirror…"* and the
+download continues. (The mirror is a third-party service, so on the rare day
+it's down or rate-limited, retry the item or use the Proxy URL below.)
 
-For TikTok in India specifically, the VPN/proxy **must exit outside India**:
-TikTok's own servers refuse Indian IP addresses (every page redirects to
-their India notice), so bypassing the ISP block alone — e.g. by switching
-your DNS to 1.1.1.1 — gets you a different error, not a download. DNS-only
-fixes do work for sites that don't geo-refuse India themselves.
+**Another site fails with a network error, but my internet is fine.**
+That site is blocked by your ISP or country. Unlike TikTok (handled above),
+other sites have no built-in mirror, so route around it: run a **system-wide
+VPN app** (set to cover all apps, not split tunnel), or set **Settings ▸ Proxy
+URL** to a proxy/VPN address — many VPN apps expose a local proxy like
+`socks5://127.0.0.1:1080` you can paste there.
 
 **My download came in with only audio, or only video.**
 That's a site serving broken split streams. Hit **Retry** on the item —

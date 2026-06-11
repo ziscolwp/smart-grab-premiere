@@ -63,6 +63,15 @@ test('buildYtDlpArgs: video args include sort, reliability flags, merge format',
   assert.strictEqual(args[args.length - 1], 'https://x/y');
 });
 
+test('buildYtDlpArgs: outputTemplate overrides the default -o (resolver path)', () => {
+  const args = L.buildYtDlpArgs(
+    { quality: 'best', videoFormat: 'mp4Premiere', outputTemplate: 'Clip [123].%(ext)s' },
+    '/t', '/f', 'URL'
+  );
+  assert.strictEqual(argValue(args, '-o'), 'Clip [123].%(ext)s');
+  assert.strictEqual(String(argValue(args, '-o')).indexOf('%(title).80B'), -1);
+});
+
 test('buildYtDlpArgs: MKV merge format, no codec sort', () => {
   const args = L.buildYtDlpArgs({ quality: 'best', videoFormat: 'mkv' }, '/t', '/f', 'URL');
   assert.strictEqual(argValue(args, '--merge-output-format'), 'mkv');

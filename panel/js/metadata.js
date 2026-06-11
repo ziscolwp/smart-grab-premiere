@@ -3,6 +3,7 @@
 var childProcess = require('child_process');
 var binaries = require('./binaries.js');
 var L = require('./engineLogic.js');
+var tiktok = require('./tiktok.js');
 
 var INFO_TEMPLATE = '%(title)s\t%(duration)s\t%(thumbnail)s\t%(extractor_key)s\t%(uploader)s';
 
@@ -46,7 +47,21 @@ function fetchInfo(url, opts, cb) {
   p.stderr.on('data', function (d) { err += d.toString(); });
   p.on('error', cb);
   p.on('close', function (code) {
-    if (code !== 0) return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
+    if (code !== 0) {
+      // Same ISP block as the download path: if yt-dlp can't reach a TikTok
+      // URL, pull title/duration/thumbnail from the resolver so the queue row
+      // still shows real info instead of the bare URL.
+      if (tiktok.isTikTokUrl(url)) {
+        return tiktok.resolve(url, function (rerr, info) {
+          if (rerr || !info) return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
+          cb(null, {
+            title: info.title || url, durationSec: info.durationSec,
+            thumbnail: info.thumbnail || null, extractor: 'TikTok', uploader: info.uploader || null
+          });
+        });
+      }
+      return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
+    }
     cb(null, parseInfoLine(out.split(/\r?\n/)[0] || '', url));
   });
 }

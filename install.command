@@ -63,7 +63,7 @@ for b in yt-dlp ffmpeg ffprobe deno; do
 done
 
 echo "Enabling CEP debug mode (PPro 2021–2025+)…"
-for v in 10 11 12; do
+for v in 10 11 12 13; do
   defaults write com.adobe.CSXS.$v PlayerDebugMode 1
 done
 killall -u "$(whoami)" cfprefsd 2>/dev/null

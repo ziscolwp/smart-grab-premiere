@@ -1,6 +1,14 @@
 # Smart Grab for Premiere — Windows installer (copy + fetch binaries + enable CEP).
-# Tolerant: a failed binary download is a warning, not fatal (use "Update yt-dlp" in the panel later).
+# Tolerant: a failed binary download is a warning, not fatal (the panel
+# downloads anything missing by itself on first open).
 $ErrorActionPreference = "Continue"
+# PS 5.1 renders a progress bar per chunk, slowing Invoke-WebRequest ~10x.
+$ProgressPreference = "SilentlyContinue"
+# Older Win10 PowerShell defaults to TLS 1.0; GitHub requires 1.2+.
+try {
+  [Net.ServicePointManager]::SecurityProtocol = `
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
 
 $SelfDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
 $PanelSrc = Join-Path $SelfDir "panel"
@@ -52,7 +60,7 @@ New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 Copy-Item -Path "$PanelSrc\*" -Destination $Dest -Recurse -Force
 
 Write-Host "Enabling CEP debug mode (PPro 2021-2025+)..."
-foreach ($v in 10..12) {
+foreach ($v in 10..13) {
   $key = "HKCU:\Software\Adobe\CSXS.$v"
   if (-not (Test-Path $key)) { New-Item -Path $key -Force | Out-Null }
   New-ItemProperty -Path $key -Name PlayerDebugMode -Value "1" -PropertyType String -Force | Out-Null

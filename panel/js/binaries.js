@@ -89,6 +89,15 @@ function ytDlpDownloadUrl(platform) {
 // Real I/O below — download/extract/install. Manually tested (network).
 // ---------------------------------------------------------------------------
 
+// curl/tar ship with macOS and Windows 10 1803+. On Windows prefer the
+// System32 copy by absolute path — self-healing must survive a broken PATH.
+function systemTool(name) {
+  if (!isWin()) return '/usr/bin/' + name;
+  var sys32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', name + '.exe');
+  try { if (fs.existsSync(sys32)) return sys32; } catch (e) {}
+  return name + '.exe';
+}
+
 // Gatekeeper would block an unsigned, quarantined binary on macOS.
 function blessMacBinary(p) {
   fs.chmodSync(p, 493 /* 0755 */);
@@ -101,7 +110,7 @@ function blessMacBinary(p) {
 // good one. onPercent (optional) gets 0-100 parsed from curl's progress bar.
 function downloadFile(url, dest, onPercent, cb) {
   var part = dest + '.part';
-  var curlBin = isWin() ? 'curl.exe' : '/usr/bin/curl';
+  var curlBin = systemTool('curl');
   var args = ['-L', '--fail', '--retry', '2', '--connect-timeout', '20', '-#', '-o', part, url];
   var curl = childProcess.spawn(curlBin, args);
   var errOut = '';
@@ -126,8 +135,7 @@ function downloadFile(url, dest, onPercent, cb) {
 // bsdtar extracts zips and ships with macOS and Windows 10 1803+ — one code
 // path for every archive we fetch.
 function extractArchive(zipPath, destDir, cb) {
-  var tarBin = isWin() ? 'tar.exe' : '/usr/bin/tar';
-  var p = childProcess.spawn(tarBin, ['-xf', zipPath, '-C', destDir]);
+  var p = childProcess.spawn(systemTool('tar'), ['-xf', zipPath, '-C', destDir]);
   var errOut = '';
   p.stderr.on('data', function (d) { errOut += d.toString(); });
   p.on('error', cb);

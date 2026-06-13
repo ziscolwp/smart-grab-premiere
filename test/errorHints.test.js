@@ -57,3 +57,18 @@ test('unknown errors return null (caller keeps raw text)', () => {
   assert.strictEqual(E.friendly(''), null);
   assert.strictEqual(E.friendly(null), null);
 });
+
+test('friendly returns structured category, retryable flag, and action', () => {
+  const r = E.friendly('ERROR: HTTP Error 429: Too Many Requests');
+  assert.strictEqual(r.category, 'rate-limit');
+  assert.strictEqual(r.retryable, true);
+  assert.strictEqual(r.action, 'wait');
+  assert.ok(r.message);
+  assert.ok(r.hint);
+});
+
+test('friendly classifies missing ffmpeg as a tool repair action', () => {
+  const r = E.friendly('ERROR: ffmpeg not found');
+  assert.strictEqual(r.category, 'tool');
+  assert.strictEqual(r.action, 'repair-tools');
+});

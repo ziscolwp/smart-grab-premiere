@@ -4,12 +4,16 @@
 // deps: { doc, $, state, settingsMod, binaries, metadata, extRoot, cs,
 //         evalJSX, onSaved }  — onSaved() runs after a successful Save so
 // main.js can refresh the main view.
+var browserDetection = require('./browserDetection.js');
+
 function createSettingsView(deps) {
   var $ = deps.$;
   var doc = deps.doc;
   var state = deps.state;
   var settingsMod = deps.settingsMod;
   var binaries = deps.binaries;
+  var browserDetector = deps.browserDetection || browserDetection;
+  var detectedBrowsers = [];
 
   function panelVersion() {
     try {
@@ -25,14 +29,28 @@ function createSettingsView(deps) {
     $('cookiesFileRow').classList.toggle('hidden', mode !== 'file');
   }
 
+  function refreshBrowserOptions(selected) {
+    try {
+      detectedBrowsers = browserDetector.detectInstalledBrowsers();
+    } catch (e) {
+      detectedBrowsers = [];
+    }
+    $('cookiesBrowser').innerHTML = browserDetector.browserOptionsHtml(detectedBrowsers, selected);
+    $('exportBrowser').innerHTML = browserDetector.browserOptionsHtml(detectedBrowsers, selected);
+    $('cookiesBrowser').disabled = detectedBrowsers.length === 0;
+    $('exportBrowser').disabled = detectedBrowsers.length === 0;
+    $('exportCookiesBtn').disabled = detectedBrowsers.length === 0;
+  }
+
   function show() {
     var s = state.settings;
+    var selectedBrowser = (s.cookiesBrowser && s.cookiesBrowser !== 'none') ? s.cookiesBrowser : '';
     var radios = doc.getElementsByName('mode');
     for (var i = 0; i < radios.length; i++) radios[i].checked = (radios[i].value === s.destinationMode);
     $('customFolder').value = s.customFolder || '';
     $('binName').value = s.binName;
     $('cookiesMode').value = s.cookiesFile ? 'file' : (s.cookiesBrowser && s.cookiesBrowser !== 'none' ? 'browser' : 'none');
-    $('cookiesBrowser').value = (s.cookiesBrowser && s.cookiesBrowser !== 'none') ? s.cookiesBrowser : 'chrome';
+    refreshBrowserOptions(selectedBrowser);
     $('cookiesFile').value = s.cookiesFile || '';
     syncCookiesRows();
     $('proxyUrl').value = s.proxyUrl || '';
@@ -68,11 +86,15 @@ function createSettingsView(deps) {
 
   $('exportCookiesBtn').addEventListener('click', function () {
     var browser = $('exportBrowser').value;
+    if (!browser) {
+      $('cookiesFileStatus').textContent = 'No supported browsers found on this device.';
+      return;
+    }
     var dest = require('path').join(settingsMod.DIR, 'cookies.txt');
     $('cookiesFileStatus').textContent = 'Reading ' + browser + ' cookies… (close the browser if this fails)';
     $('exportCookiesBtn').disabled = true;
     deps.metadata.exportCookies({ extRoot: deps.extRoot, browser: browser, destPath: dest }, function (err, path) {
-      $('exportCookiesBtn').disabled = false;
+      $('exportCookiesBtn').disabled = detectedBrowsers.length === 0;
       if (err) { $('cookiesFileStatus').textContent = 'Could not read cookies: ' + err.message; return; }
       $('cookiesFile').value = path;
       $('cookiesFileStatus').textContent = '✓ Cookies file created — hit Save below.';
@@ -116,7 +138,7 @@ function createSettingsView(deps) {
     state.settings.customFolder = $('customFolder').value;
     state.settings.binName = $('binName').value || 'Downloaded Video';
     var cmode = $('cookiesMode').value;
-    state.settings.cookiesBrowser = cmode === 'browser' ? $('cookiesBrowser').value : 'none';
+    state.settings.cookiesBrowser = (cmode === 'browser' && $('cookiesBrowser').value) ? $('cookiesBrowser').value : 'none';
     state.settings.cookiesFile = cmode === 'file' ? $('cookiesFile').value : '';
     state.settings.proxyUrl = $('proxyUrl').value.replace(/^\s+|\s+$/g, '');
     state.settings.trimMode = $('trimMode').value;

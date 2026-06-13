@@ -39,10 +39,12 @@ Developers: clone the repo and see [Development](#development).
 - **Where to save** — next to your `.prproj` (synced per project) or a fixed folder.
 - **Sign-in cookies** — needed for Instagram, X, and private/age-gated videos.
   - *From a cookies.txt file* — **recommended.** Click **Create from browser**:
-    the panel reads your browser's cookies once and saves them to a file — no
-    terminal, no extension, nothing technical. (Close the browser first. On
-    macOS, Chrome/Brave ask for a one-time keychain permission; Safari is blocked
-    by macOS privacy protection — use another browser. On Windows, use Firefox.)
+    the panel shows supported browsers it finds on your device, reads the chosen
+    browser's cookies once, and saves them to a file — no terminal, no extension,
+    nothing technical. (Close the browser first. On macOS, Chrome/Brave ask for a
+    one-time keychain permission; Safari is blocked by macOS privacy protection —
+    use another browser. On Windows, use Firefox or a manual cookies.txt export if
+    Chromium-based cookies cannot be read.)
     Power users can instead export with the "Get cookies.txt LOCALLY" extension
     and Browse to it — best for YouTube, where a private-window export lasts longest.
   - *From a browser (live)* — reads cookies on every download; quicker to set up
@@ -73,7 +75,8 @@ The panel translates common failures into plain English with a fix hint
 Those sites show most videos only to logged-in users, so the download
 needs your login too. Settings ▸ Sign-in cookies ▸ *From a cookies.txt
 file* ▸ **Create from browser** does it in one click (close the browser
-first; on Windows use Firefox).
+first; on Windows, Firefox or a manual cookies.txt export is usually most
+reliable).
 
 **Does TikTok work where it's banned (e.g. India)?**
 Yes, automatically. TikTok is blocked by many ISPs (in India it's banned, and

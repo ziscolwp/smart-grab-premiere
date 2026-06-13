@@ -15,7 +15,7 @@ var DEFAULTS = {
   lastQuality: 'fhd',
   lastVideoFormat: 'mp4Premiere',
   lastAudioFormat: 'mp3',
-  cookiesBrowser: 'none',                                    // 'none' | 'chrome' | 'firefox' | 'edge' | 'safari' | 'brave'
+  cookiesBrowser: 'none',                                    // 'none' or a yt-dlp browser key detected on this device
   cookiesFile: '',                                           // path to a Netscape cookies.txt (overrides cookiesBrowser when set)
   trimMode: 'fast',                                          // 'fast' (download only the section) | 'precise' (full download + local trim)
   proxyUrl: '',                                              // yt-dlp --proxy URL (http/https/socks5) for ISP/region-blocked sites; '' = direct

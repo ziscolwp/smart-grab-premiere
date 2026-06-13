@@ -117,22 +117,14 @@
     </select>
     <div id="cookiesBrowserRow" class="hidden">
       <select id="cookiesBrowser">
-        <option value="chrome">Chrome</option>
-        <option value="firefox">Firefox</option>
-        <option value="edge">Edge</option>
-        <option value="safari">Safari</option>
-        <option value="brave">Brave</option>
+        <option value="" disabled selected>Detecting browsers...</option>
       </select>
-      <div class="field-sub">Close the browser before downloading. On Windows, Chrome cookies can't be read — use Firefox or the file option.</div>
+      <div class="field-sub">Only browsers found on this device are shown. Close the selected browser before downloading.</div>
     </div>
     <div id="cookiesFileRow" class="hidden">
       <div class="row">
         <select id="exportBrowser" class="export-browser">
-          <option value="chrome">Chrome</option>
-          <option value="firefox">Firefox</option>
-          <option value="edge">Edge</option>
-          <option value="safari">Safari</option>
-          <option value="brave">Brave</option>
+          <option value="" disabled selected>Detecting browsers...</option>
         </select>
         <button id="exportCookiesBtn">Create from browser</button>
       </div>
@@ -143,7 +135,7 @@
         <button id="clearCookiesBtn" title="Clear">✕</button>
       </div>
       <div class="field-sub">One click: pick the browser you're logged into and hit Create — the panel reads its cookies
-        once and saves them to a file (close the browser first; on Windows use Firefox).
+        once and saves them to a file (close the browser first).
         Or export one yourself with the “Get cookies.txt LOCALLY” extension and Browse to it —
         best for YouTube, where an export from a private window lasts longest.</div>
     </div>

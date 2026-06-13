@@ -88,8 +88,9 @@ That's it. The panel downloads everything else it needs the first time
 it opens (takes a minute — watch the progress bar).
 
 Tip: for private/age-gated videos the panel can use your browser
-sign-in. On Windows, use Firefox for that — Windows blocks reading
-Chrome's cookies.
+sign-in. It shows supported browsers found on this device. On Windows,
+Firefox or a manual cookies.txt export is usually most reliable if
+Chromium-based cookies cannot be read.
 
 Need Premiere Pro 2021 (15.0) or newer, Windows 10/11 64-bit.
 Questions or problems:

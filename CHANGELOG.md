@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.2.1 — 2026-06-13
+
+### Fixed
+- **Windows paste shortcuts now work in the panel.** Ctrl+V/C/X/A use the
+  Windows system clipboard instead of the macOS-only clipboard command.
+- **Cookie browser choices now match the user's device.** The Settings panel
+  detects installed supported browsers and shows only those choices for live
+  cookies and one-click cookies.txt creation.
+
 ## 3.2.0 — 2026-06-12
 
 ### Added

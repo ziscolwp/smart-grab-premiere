@@ -22,7 +22,9 @@ var queueRender = require(extRoot + '/js/queueRender.js');
 
 var $ = function (id) { return document.getElementById(id); };
 var state = { settings: settingsMod.load() };
-var idCounter = 0;
+var savedQueue = queueStore.load();
+queueStore.cleanupOrphanWorkDirs(savedQueue.items);
+var idCounter = queueStore.nextIdSeed(savedQueue.items);
 var clip = { slider: null, durationSec: null };
 
 function evalJSX(fnCall, cb) { cs.evalScript(fnCall, cb); }
@@ -71,9 +73,10 @@ var queue = queueMod.createQueue({
   extRoot: extRoot,
   makeId: function () { return 'q' + (++idCounter); },
   makeWorkDir: function (id) { return queueStore.workDirFor(id); },
-  initialItems: queueStore.load().items,
+  initialItems: savedQueue.items,
   existsSync: fs.existsSync,
   persist: function (items) { queueStore.save({ version: queueStore.VERSION, items: items }); },
+  cleanupWorkDir: function (workDir) { queueStore.cleanupWorkDir(workDir); },
   onChange: renderQueue,
   fetchInfo: function (url, cb) {
     metadata.fetchInfo(url, cookieOpts(), cb);

@@ -3,11 +3,12 @@ const assert = require('node:assert');
 const diagnostics = require('../panel/js/diagnostics.js');
 
 test('redact removes query strings, cookies, auth headers, and home paths', () => {
-  const out = diagnostics.redact('https://x.test/v?id=secret Cookie: abc Authorization: Bearer tok /Users/editor/file.mp4', {
+  const out = diagnostics.redact('https://user:pass@x.test/v?id=secret Cookie: abc Authorization: Bearer tok /Users/editor/file.mp4', {
     homeDir: '/Users/editor'
   });
   assert.ok(out.indexOf('?<redacted>') !== -1);
   assert.strictEqual(out.indexOf('/v?'), -1);
+  assert.strictEqual(out.indexOf('user:pass'), -1);
   assert.ok(out.indexOf('Cookie: <redacted>') !== -1);
   assert.ok(out.indexOf('Authorization: <redacted>') !== -1);
   assert.ok(out.indexOf('~/file.mp4') !== -1);

@@ -100,14 +100,21 @@ test('title fetch failure still queues the item (title falls back to URL)', () =
 
 test('cancel kills the active process and advances', () => {
   let killed = false;
+  let isCanceled;
   const finishers = [];
   const q = createQueue(baseDeps({
-    download: (opts, cbs, done) => { cbs.onProc({ kill: () => { killed = true; } }); finishers.push(done); }
+    download: (opts, cbs, done) => {
+      if (!isCanceled) isCanceled = opts.isCanceled;
+      cbs.onProc({ kill: () => { killed = true; } });
+      finishers.push(done);
+    }
   }));
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
   const firstId = q.getItems()[0].id;
+  assert.strictEqual(isCanceled(), false);
   q.cancel(firstId);
   assert.strictEqual(killed, true);
+  assert.strictEqual(isCanceled(), true);
   const items = q.getItems();
   assert.strictEqual(items[0].status, 'canceled');
   assert.strictEqual(items.filter(i => i.status === 'downloading').length, 1);
@@ -142,4 +149,21 @@ test('remove drops a non-active item; clearDone strips terminals', () => {
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
   q.clearDone();
   assert.strictEqual(q.getItems().length, 0);
+});
+
+test('remove and clearDone clean terminal work directories', () => {
+  const cleaned = [];
+  const q = createQueue(baseDeps({
+    cleanupWorkDir: (p) => cleaned.push(p),
+    initialItems: [
+      { id: 'err', url: 'a', status: 'error', opts: {}, workDir: '/work/err' },
+      { id: 'can', url: 'b', status: 'canceled', opts: {}, workDir: '/work/can' },
+      { id: 'active', url: 'c', status: 'queued', opts: {}, workDir: '/work/active' }
+    ]
+  }));
+  q.remove('err');
+  assert.deepStrictEqual(cleaned, ['/work/err']);
+  q.clearDone();
+  assert.deepStrictEqual(cleaned, ['/work/err', '/work/can']);
+  assert.strictEqual(q.getItems()[0].id, 'active');
 });

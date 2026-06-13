@@ -5,6 +5,7 @@ var path = require('path');
 var os = require('os');
 var childProcess = require('child_process');
 var L = require('./engineLogic.js');
+var fileOps = require('./fileOps.js');
 var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
 var tiktok = require('./tiktok.js');
@@ -103,6 +104,15 @@ function download(opts, callbacks, cb) {
     }
     cleanup();
   }
+  function isCanceled() {
+    return !!(opts.isCanceled && opts.isCanceled());
+  }
+  function canceledError() {
+    var err = new Error('Canceled');
+    err.canceled = true;
+    err.retryable = true;
+    return err;
+  }
 
   var audioOnly = opts.quality === 'audioOnly';
   var vinfo = L.videoFormatInfo(opts.videoFormat);
@@ -142,9 +152,11 @@ function download(opts, callbacks, cb) {
   // generic URL; clips are trimmed locally). Keeps the original error if the
   // resolver can't help either.
   function tryTikTokResolver(originalErr) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     triedResolver = true;
     onProgress(0, 'TikTok blocked on this network — trying mirror…');
     tiktok.resolve(opts.url, function (rerr, info) {
+      if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
       if (rerr || !info || !info.videoUrl) { cleanupAfterFailure(originalErr); return cb(originalErr); }
       effectiveUrl = info.videoUrl;
       resolvedTemplate = tiktok.outputTemplate(info, opts.url);
@@ -154,9 +166,11 @@ function download(opts, callbacks, cb) {
   }
 
   function startAttempt(sectionsAllowed) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     onProgress(0, 'Downloading...');
     attemptDownload(sectionsAllowed, function (err, sectionsUsed) {
       if (err) {
+        if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
         if (sectionsUsed) {
           // Clean the tmp dir and retry with a full download + local trim.
           freshTmp();
@@ -202,6 +216,7 @@ function download(opts, callbacks, cb) {
   }
 
   function postProcess(sectionsUsed) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     var files;
     try {
       files = fs.readdirSync(tmp).filter(function (f) {
@@ -302,7 +317,7 @@ function download(opts, callbacks, cb) {
       }
     }
     function promotePartial() {
-      try { fs.renameSync(partialDest, dest); return finish(); }
+      try { dest = fileOps.promoteNoOverwrite(partialDest, dest); return finish(); }
       catch (e) { return done(e); }
     }
 

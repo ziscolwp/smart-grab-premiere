@@ -10,7 +10,14 @@ function redact(text, opts) {
   var out = String(text == null ? '' : text);
   var home = opts.homeDir || os.homedir();
   if (home) out = out.replace(new RegExp(escRegExp(home), 'g'), '~');
-  out = out.replace(/(https?:\/\/[^\/\s?#]+)[^\s]*/g, '$1?<redacted>');
+  out = out.replace(/https?:\/\/[^\s'"<>]+/ig, function (raw) {
+    try {
+      var u = new URL(raw);
+      return u.protocol + '//' + u.host + '?<redacted>';
+    } catch (e) {
+      return raw.replace(/(https?:\/\/[^\/\s?#]+)[^\s]*/i, '$1?<redacted>');
+    }
+  });
   out = out.replace(/\bCookie:\s*(?:(?!\s+[A-Za-z-]+:).)+/ig, 'Cookie: <redacted>');
   out = out.replace(/\bAuthorization:\s*(?:Bearer\s+)?[^\s]+/ig, 'Authorization: <redacted>');
   out = out.replace(/\b(token|access_token|auth|session|password|secret)=([^\s&]+)/ig, '$1=<redacted>');

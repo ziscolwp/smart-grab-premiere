@@ -19,6 +19,13 @@ function createQueue(deps) {
   function current(id) { return qs.itemById(items, id); }
   function setStatus(id, status, fields) { items = qs.setStatus(items, id, status, stamp(fields)); notify(); }
   function update(id, fields) { items = qs.update(items, id, stamp(fields)); notify(); }
+  function isCanceled(id) {
+    var it = current(id);
+    return !it || it.status !== 'downloading';
+  }
+  function cleanupItemWorkDir(it) {
+    if (deps.cleanupWorkDir && it && it.workDir && qs.isTerminalStatus(it.status)) deps.cleanupWorkDir(it.workDir);
+  }
 
   function addUrls(list) {
     var added = list.map(function (x) {
@@ -77,7 +84,12 @@ function createQueue(deps) {
     deps.resolveOutputDir(next.opts, function (derr, outputDir) {
       if (!current(id) || current(id).status !== 'downloading') return;
       if (derr) { setStatus(id, 'error', { statusMsg: derr.message }); pumpDownloads(); return; }
-      var dlOpts = Object.assign({}, next.opts, { url: next.url, outputDir: outputDir, extRoot: deps.extRoot });
+      var dlOpts = Object.assign({}, next.opts, {
+        url: next.url,
+        outputDir: outputDir,
+        extRoot: deps.extRoot,
+        isCanceled: function () { return isCanceled(id); }
+      });
       if (next.workDir) {
         dlOpts.workDir = next.workDir;
         dlOpts.preserveWorkDir = true;
@@ -159,6 +171,7 @@ function createQueue(deps) {
   function remove(id) {
     var active = qs.firstWithStatus(items, 'downloading');
     if (active && active.id === id) return; // can't remove the active download; cancel it first
+    cleanupItemWorkDir(current(id));
     items = qs.remove(items, id); notify();
   }
 
@@ -178,7 +191,10 @@ function createQueue(deps) {
     pumpDownloads();
   }
 
-  function clearDone() { items = qs.clearDone(items); notify(); }
+  function clearDone() {
+    for (var i = 0; i < items.length; i++) cleanupItemWorkDir(items[i]);
+    items = qs.clearDone(items); notify();
+  }
   function getItems() { return items; }
 
   function start() {

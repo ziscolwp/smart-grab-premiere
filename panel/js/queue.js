@@ -94,11 +94,13 @@ function createQueue(deps) {
         delete procs[id];
         if (!current(id) || current(id).status !== 'downloading') return;
         if (err) {
+          var canRetry = err.retryable !== false && (!!err.retryable || !!err.hasPartials);
           setStatus(id, 'error', {
             statusMsg: err.message,
             errorHint: err.hint || null,
             errorCategory: err.category || null,
-            retryable: !!err.retryable
+            retryable: canRetry,
+            workDirHasPartials: !!err.hasPartials
           });
           pumpDownloads();
           return;
@@ -113,6 +115,7 @@ function createQueue(deps) {
             setStatus(id, 'done', {
               outputPath: res.path,
               outputPaths: paths,
+              workDirHasPartials: false,
               statusMsg: firstImpErr ? ('Downloaded (import failed): ' + firstImpErr.message) : (res.size || 'Done')
             });
             pumpDownloads();
@@ -132,7 +135,8 @@ function createQueue(deps) {
     var it = current(id);
     items = qs.setStatus(items, id, 'canceled', stamp({
       statusMsg: 'Canceled',
-      retryable: it ? it.status === 'downloading' : false
+      retryable: it ? it.status === 'downloading' : false,
+      workDirHasPartials: it ? it.status === 'downloading' : false
     })); notify();
     pumpDownloads();
   }
@@ -142,7 +146,12 @@ function createQueue(deps) {
     procs = {};
     items = items.map(function (it) {
       var active = it.status === 'pending' || it.status === 'fetching-info' || it.status === 'queued' || it.status === 'downloading';
-      return active ? Object.assign({}, it, stamp({ status: 'canceled', statusMsg: 'Canceled', retryable: it.status === 'downloading' })) : it;
+      return active ? Object.assign({}, it, stamp({
+        status: 'canceled',
+        statusMsg: 'Canceled',
+        retryable: it.status === 'downloading',
+        workDirHasPartials: it.status === 'downloading'
+      })) : it;
     });
     notify();
   }
@@ -162,6 +171,7 @@ function createQueue(deps) {
       errorHint: null,
       errorCategory: null,
       retryable: false,
+      workDirHasPartials: false,
       progress: 0
     }));
     notify();

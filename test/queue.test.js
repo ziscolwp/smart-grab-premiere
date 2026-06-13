@@ -51,7 +51,7 @@ test('retry increments attempt count and clears structured error fields', () => 
     download: (opts, cbs, done) => {
       const err = new Error('nope');
       err.category = 'network';
-      err.retryable = true;
+      err.hasPartials = true;
       done(err);
     }
   }));
@@ -62,6 +62,7 @@ test('retry increments attempt count and clears structured error fields', () => 
   assert.ok(it.attemptCount >= 1);
   assert.strictEqual(it.errorCategory, 'network');
   assert.strictEqual(it.retryable, true);
+  assert.strictEqual(it.workDirHasPartials, true);
 });
 
 test('downloads run one at a time (sequential)', () => {

@@ -7,7 +7,7 @@ function makeItem(id, url, opts, extra) {
     status: 'pending', progress: 0, statusMsg: '',
     opts: opts || {}, outputPath: null, outputPaths: [],
     errorHint: null, errorCategory: null, retryable: false,
-    attemptCount: 0, workDir: extra.workDir || null,
+    attemptCount: 0, workDir: extra.workDir || null, workDirHasPartials: false,
     createdAt: now, updatedAt: now
   };
 }
@@ -50,6 +50,7 @@ function normalizeItem(raw, deps) {
   if (!Array.isArray(item.outputPaths)) item.outputPaths = item.outputPath ? [item.outputPath] : [];
   if (item.attemptCount == null) item.attemptCount = 0;
   if (item.retryable == null) item.retryable = false;
+  if (item.workDirHasPartials == null) item.workDirHasPartials = false;
   item.updatedAt = now;
 
   if (item.status === 'fetching-info') {
@@ -59,6 +60,7 @@ function normalizeItem(raw, deps) {
   } else if (item.status === 'downloading') {
     item.status = 'canceled';
     item.retryable = true;
+    item.workDirHasPartials = true;
     item.statusMsg = 'Interrupted when the panel closed';
   } else if (item.status === 'importing') {
     var exists = deps.existsSync || function () { return false; };

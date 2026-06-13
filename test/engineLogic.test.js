@@ -236,6 +236,18 @@ test('outputFileName: clip range encodes start/end with dashes', () => {
   );
 });
 
+test('uniquePath appends a numeric suffix before the extension', () => {
+  const taken = new Set(['/out/Clip.mp4', '/out/Clip (1).mp4']);
+  const existsSync = (p) => taken.has(p);
+  assert.strictEqual(L.uniquePath('/out/Clip.mp4', existsSync), '/out/Clip (2).mp4');
+  assert.strictEqual(L.uniquePath('/out/Fresh.mp4', existsSync), '/out/Fresh.mp4');
+});
+
+test('partialOutputPath appends a smartgrab-part suffix before the extension', () => {
+  assert.strictEqual(L.partialOutputPath('/out/Clip.mp4'), '/out/Clip.smartgrab-part.mp4');
+  assert.strictEqual(L.partialOutputPath('/out/Clip'), '/out/Clip.smartgrab-part');
+});
+
 test('choosePostProcess: audio-only => move', () => {
   assert.deepStrictEqual(
     L.choosePostProcess({ audioOnly: true }, '/s.m4a', '/d.wav'),
@@ -371,4 +383,15 @@ test('parseProgress: merging status for merge lines', () => {
 
 test('parseProgress: null for unrelated lines', () => {
   assert.strictEqual(L.parseProgress('[info] something'), null);
+});
+
+test('createLineEmitter buffers partial lines across chunks', () => {
+  const lines = [];
+  const emitter = L.createLineEmitter((line) => lines.push(line));
+  emitter.feed(Buffer.from('SG|  1'));
+  emitter.feed(Buffer.from('0.0%|1MiB/s|00:01\n[info] one\r'));
+  emitter.feed(Buffer.from('\npartial'));
+  assert.deepStrictEqual(lines, ['SG|  10.0%|1MiB/s|00:01', '[info] one']);
+  emitter.flush();
+  assert.deepStrictEqual(lines, ['SG|  10.0%|1MiB/s|00:01', '[info] one', 'partial']);
 });

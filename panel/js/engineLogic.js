@@ -1,5 +1,6 @@
 // panel/js/engineLogic.js
 // Pure logic for the download pipeline. No I/O — fully unit-testable.
+var path = require('path');
 
 var HEIGHT = { best: null, uhd: 2160, fhd: 1080, hd: 720, sd: 480 };
 
@@ -125,6 +126,26 @@ function outputFileName(stem, opts) {
     return stem + '_clip_' + s + '_to_' + e + '.' + ext;
   }
   return stem + '.' + ext;
+}
+
+function uniquePath(targetPath, existsSync) {
+  existsSync = existsSync || function () { return false; };
+  if (!existsSync(targetPath)) return targetPath;
+  var dir = path.dirname(targetPath);
+  var ext = path.extname(targetPath);
+  var stem = path.basename(targetPath, ext);
+  for (var i = 1; i < 10000; i++) {
+    var candidate = path.join(dir, stem + ' (' + i + ')' + ext);
+    if (!existsSync(candidate)) return candidate;
+  }
+  return path.join(dir, stem + ' (' + Date.now() + ')' + ext);
+}
+
+function partialOutputPath(targetPath) {
+  var dir = path.dirname(targetPath);
+  var ext = path.extname(targetPath);
+  var stem = path.basename(targetPath, ext);
+  return path.join(dir, stem + '.smartgrab-part' + ext);
 }
 
 // p: { audioOnly, clipEnabled, startTime, endTime, needsReencode, srcExt, tgtExt,
@@ -255,6 +276,25 @@ function parseProgress(line) {
   return null;
 }
 
+function createLineEmitter(onLine) {
+  var pending = '';
+  function emit(line) {
+    if (line && onLine) onLine(line);
+  }
+  return {
+    feed: function (buf) {
+      pending += buf.toString();
+      var lines = pending.split(/\r?\n/);
+      pending = lines.pop();
+      for (var i = 0; i < lines.length; i++) emit(lines[i]);
+    },
+    flush: function () {
+      emit(pending);
+      pending = '';
+    }
+  };
+}
+
 module.exports = {
   qualityToFormat: qualityToFormat,
   formatSort: formatSort,
@@ -266,9 +306,12 @@ module.exports = {
   buildYtDlpArgs: buildYtDlpArgs,
   targetExt: targetExt,
   outputFileName: outputFileName,
+  uniquePath: uniquePath,
+  partialOutputPath: partialOutputPath,
   choosePostProcess: choosePostProcess,
   pairLeftoverStreams: pairLeftoverStreams,
   selfMergeArgs: selfMergeArgs,
   stripFormatSuffix: stripFormatSuffix,
-  parseProgress: parseProgress
+  parseProgress: parseProgress,
+  createLineEmitter: createLineEmitter
 };

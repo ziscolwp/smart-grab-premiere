@@ -74,3 +74,24 @@ test('ytDlpDownloadUrl picks the right release asset per platform', () => {
   assert.ok(B.ytDlpDownloadUrl('win32').indexOf('yt-dlp.exe') !== -1);
   assert.ok(B.ytDlpDownloadUrl('darwin').indexOf('yt-dlp_macos') !== -1);
 });
+
+test('checkHealth reports versions for runnable required tools and warning for missing deno', () => {
+  const result = B.checkHealth({
+    resolveBinary: (name) => name === 'deno' ? null : '/bin/' + name,
+    spawnSync: (exe) => ({ status: 0, stdout: exe.indexOf('yt-dlp') !== -1 ? '2026.06.12\n' : 'ffmpeg version 8.1\n' })
+  });
+  assert.strictEqual(result.ok, true);
+  assert.strictEqual(result.tools.ytdlp.version, '2026.06.12');
+  assert.strictEqual(result.tools.deno.ok, false);
+  assert.strictEqual(result.tools.deno.optional, true);
+});
+
+test('checkHealth blocks when ffmpeg is missing', () => {
+  const result = B.checkHealth({
+    resolveBinary: (name) => name === 'ffmpeg' ? null : '/bin/' + name,
+    spawnSync: () => ({ status: 0, stdout: 'ok\n' })
+  });
+  assert.strictEqual(result.ok, false);
+  assert.strictEqual(result.action, 'repair-tools');
+  assert.strictEqual(result.tools.ffmpeg.ok, false);
+});

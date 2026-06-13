@@ -7,6 +7,7 @@ test('redact removes query strings, cookies, auth headers, and home paths', () =
     homeDir: '/Users/editor'
   });
   assert.ok(out.indexOf('?<redacted>') !== -1);
+  assert.strictEqual(out.indexOf('/v?'), -1);
   assert.ok(out.indexOf('Cookie: <redacted>') !== -1);
   assert.ok(out.indexOf('Authorization: <redacted>') !== -1);
   assert.ok(out.indexOf('~/file.mp4') !== -1);

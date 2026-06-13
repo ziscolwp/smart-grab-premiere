@@ -2,8 +2,11 @@
 var cs = new CSInterface();
 var extRoot = cs.getSystemPath(SystemPath.EXTENSION);
 var childProcess = require('child_process');
+var fs = require('fs');
 var engine = require(extRoot + '/js/downloadEngine.js');
 var settingsMod = require(extRoot + '/js/settings.js');
+var queueStore = require(extRoot + '/js/queueStore.js');
+var diagnostics = require(extRoot + '/js/diagnostics.js');
 var binaries = require(extRoot + '/js/binaries.js');
 var setupLogic = require(extRoot + '/js/setupLogic.js');
 var setupBannerMod = require(extRoot + '/js/setupBanner.js');
@@ -55,11 +58,22 @@ function revealFile(p) {
     else childProcess.spawn('open', ['-R', p]);
   } catch (e) {}
 }
+function panelVersion() {
+  try {
+    var xml = fs.readFileSync(extRoot + '/CSXS/manifest.xml', 'utf8');
+    var m = xml.match(/ExtensionBundleVersion="([^"]+)"/);
+    return m ? m[1] : '';
+  } catch (e) { return ''; }
+}
 
 // ---------- The queue ----------
 var queue = queueMod.createQueue({
   extRoot: extRoot,
   makeId: function () { return 'q' + (++idCounter); },
+  makeWorkDir: function (id) { return queueStore.workDirFor(id); },
+  initialItems: queueStore.load().items,
+  existsSync: fs.existsSync,
+  persist: function (items) { queueStore.save({ version: queueStore.VERSION, items: items }); },
   onChange: renderQueue,
   fetchInfo: function (url, cb) {
     metadata.fetchInfo(url, cookieOpts(), cb);
@@ -80,6 +94,21 @@ function renderQueue(items) {
       var its = queue.getItems();
       for (var i = 0; i < its.length; i++) {
         if (its[i].id === id && its[i].outputPath) revealFile(its[i].outputPath);
+      }
+    },
+    diagnostics: function (id) {
+      var its = queue.getItems();
+      for (var i = 0; i < its.length; i++) {
+        if (its[i].id === id) {
+          var text = diagnostics.buildItemDiagnostics({
+            appVersion: panelVersion() || 'unknown',
+            item: its[i],
+            tools: binaries.checkHealth({ extRoot: extRoot }).tools,
+            lines: [its[i].statusMsg || '', its[i].errorHint || '']
+          });
+          clipboard.write(text);
+          $('topStatus').textContent = 'Diagnostics copied.';
+        }
       }
     }
   });
@@ -324,4 +353,5 @@ $('clearDoneBtn').addEventListener('click', function () { queue.clearDone(); });
 applySettingsToUI();
 updateUrlMeta();
 renderQueue(queue.getItems());
+queue.start();
 setupBanner.init();

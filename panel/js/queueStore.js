@@ -4,6 +4,7 @@ var settings = require('./settings.js');
 
 var VERSION = 1;
 var DEFAULT_FILE = path.join(settings.DIR, 'queue.json');
+var WORK_DIR = path.join(settings.DIR, 'work');
 
 function empty() {
   return { version: VERSION, items: [] };
@@ -60,10 +61,20 @@ function clear(file) {
   }
 }
 
+function safeId(id) {
+  return String(id || 'item').replace(/[^a-z0-9_.-]+/ig, '_');
+}
+
+function workDirFor(id) {
+  return path.join(WORK_DIR, safeId(id));
+}
+
 module.exports = {
   VERSION: VERSION,
   DEFAULT_FILE: DEFAULT_FILE,
+  WORK_DIR: WORK_DIR,
   load: load,
   save: save,
-  clear: clear
+  clear: clear,
+  workDirFor: workDirFor
 };

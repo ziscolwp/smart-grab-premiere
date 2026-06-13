@@ -5,17 +5,29 @@
 var qs = require('./queueState.js');
 
 function createQueue(deps) {
-  var items = [];
+  var now = deps.now || function () { return Date.now(); };
+  var items = qs.rehydrate(deps.initialItems || [], { existsSync: deps.existsSync, now: now });
   var fetching = 0;
   var CONC = deps.titleConcurrency || 4;
   var procs = {};   // id -> child process (kept out of item objects)
 
-  function notify() { deps.onChange(items); }
-  function setStatus(id, status, fields) { items = qs.setStatus(items, id, status, fields); notify(); }
-  function update(id, fields) { items = qs.update(items, id, fields); notify(); }
+  function notify() {
+    deps.onChange(items);
+    if (deps.persist) deps.persist(items);
+  }
+  function stamp(fields) { return Object.assign({}, fields || {}, { updatedAt: now() }); }
+  function current(id) { return qs.itemById(items, id); }
+  function setStatus(id, status, fields) { items = qs.setStatus(items, id, status, stamp(fields)); notify(); }
+  function update(id, fields) { items = qs.update(items, id, stamp(fields)); notify(); }
 
   function addUrls(list) {
-    var added = list.map(function (x) { return qs.makeItem(deps.makeId(), x.url, x.opts || {}); });
+    var added = list.map(function (x) {
+      var id = deps.makeId();
+      return qs.makeItem(id, x.url, x.opts || {}, {
+        now: now,
+        workDir: deps.makeWorkDir ? deps.makeWorkDir(id) : null
+      });
+    });
     items = qs.add(items, added);
     notify();
     pumpTitles();
@@ -31,12 +43,17 @@ function createQueue(deps) {
       (function (id, url) {
         deps.fetchInfo(url, function (err, info) {
           fetching--;
-          if (err) { items = qs.setStatus(items, id, 'queued', { title: url, statusMsg: 'title unavailable' }); }
+          if (!current(id) || current(id).status !== 'fetching-info') {
+            pumpTitles();
+            pumpDownloads();
+            return;
+          }
+          if (err) { items = qs.setStatus(items, id, 'queued', stamp({ title: url, statusMsg: 'title unavailable' })); }
           else {
-            items = qs.setStatus(items, id, 'queued', {
+            items = qs.setStatus(items, id, 'queued', stamp({
               title: info.title, durationSec: info.durationSec,
               thumbnail: info.thumbnail || null, uploader: info.uploader || null
-            });
+            }));
           }
           notify();
           pumpTitles();
@@ -51,13 +68,23 @@ function createQueue(deps) {
     var next = qs.nextQueued(items);
     if (!next) return;
     var id = next.id;
-    items = qs.setStatus(items, id, 'downloading', { progress: 0, statusMsg: 'Starting…' }); notify();
+    items = qs.setStatus(items, id, 'downloading', stamp({
+      progress: 0,
+      statusMsg: 'Starting…',
+      attemptCount: (next.attemptCount || 0) + 1
+    })); notify();
 
     deps.resolveOutputDir(next.opts, function (derr, outputDir) {
+      if (!current(id) || current(id).status !== 'downloading') return;
       if (derr) { setStatus(id, 'error', { statusMsg: derr.message }); pumpDownloads(); return; }
       var dlOpts = Object.assign({}, next.opts, { url: next.url, outputDir: outputDir, extRoot: deps.extRoot });
+      if (next.workDir) {
+        dlOpts.workDir = next.workDir;
+        dlOpts.preserveWorkDir = true;
+      }
       deps.download(dlOpts, {
         onProgress: function (pct, msg) {
+          if (!current(id) || current(id).status !== 'downloading') return;
           var fields = { statusMsg: msg || '' };
           if (pct !== null && pct !== undefined) fields.progress = pct;
           update(id, fields);
@@ -65,8 +92,14 @@ function createQueue(deps) {
         onProc: function (p) { procs[id] = p; }
       }, function (err, res) {
         delete procs[id];
+        if (!current(id) || current(id).status !== 'downloading') return;
         if (err) {
-          setStatus(id, 'error', { statusMsg: err.message, errorHint: err.hint || null });
+          setStatus(id, 'error', {
+            statusMsg: err.message,
+            errorHint: err.hint || null,
+            errorCategory: err.category || null,
+            retryable: !!err.retryable
+          });
           pumpDownloads();
           return;
         }
@@ -79,6 +112,7 @@ function createQueue(deps) {
           if (pi >= paths.length) {
             setStatus(id, 'done', {
               outputPath: res.path,
+              outputPaths: paths,
               statusMsg: firstImpErr ? ('Downloaded (import failed): ' + firstImpErr.message) : (res.size || 'Done')
             });
             pumpDownloads();
@@ -95,7 +129,11 @@ function createQueue(deps) {
 
   function cancel(id) {
     if (procs[id]) { try { procs[id].kill(); } catch (e) {} delete procs[id]; }
-    items = qs.setStatus(items, id, 'canceled', { statusMsg: 'Canceled' }); notify();
+    var it = current(id);
+    items = qs.setStatus(items, id, 'canceled', stamp({
+      statusMsg: 'Canceled',
+      retryable: it ? it.status === 'downloading' : false
+    })); notify();
     pumpDownloads();
   }
 
@@ -104,7 +142,7 @@ function createQueue(deps) {
     procs = {};
     items = items.map(function (it) {
       var active = it.status === 'pending' || it.status === 'fetching-info' || it.status === 'queued' || it.status === 'downloading';
-      return active ? Object.assign({}, it, { status: 'canceled', statusMsg: 'Canceled' }) : it;
+      return active ? Object.assign({}, it, stamp({ status: 'canceled', statusMsg: 'Canceled', retryable: it.status === 'downloading' })) : it;
     });
     notify();
   }
@@ -119,7 +157,13 @@ function createQueue(deps) {
     var it = null;
     for (var i = 0; i < items.length; i++) if (items[i].id === id) it = items[i];
     if (!it || (it.status !== 'error' && it.status !== 'canceled')) return;
-    items = qs.setStatus(items, id, 'queued', { statusMsg: '', errorHint: null, progress: 0 });
+    items = qs.setStatus(items, id, 'queued', stamp({
+      statusMsg: '',
+      errorHint: null,
+      errorCategory: null,
+      retryable: false,
+      progress: 0
+    }));
     notify();
     pumpDownloads();
   }
@@ -127,9 +171,14 @@ function createQueue(deps) {
   function clearDone() { items = qs.clearDone(items); notify(); }
   function getItems() { return items; }
 
+  function start() {
+    pumpTitles();
+    pumpDownloads();
+  }
+
   return {
     addUrls: addUrls, cancel: cancel, cancelAll: cancelAll, retry: retry,
-    remove: remove, clearDone: clearDone, getItems: getItems
+    remove: remove, clearDone: clearDone, getItems: getItems, start: start
   };
 }
 

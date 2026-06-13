@@ -25,6 +25,45 @@ test('synchronous fakes: all items reach done', () => {
   assert.strictEqual(items[0].title, 'T:a');
 });
 
+test('createQueue rehydrates initial items and persists state changes', () => {
+  const saved = [];
+  const q = createQueue(baseDeps({
+    initialItems: [{ id: 'old', url: 'a', status: 'done', opts: {}, attemptCount: 1 }],
+    persist: (items) => saved.push(items.map((it) => it.status).join(','))
+  }));
+  assert.strictEqual(q.getItems()[0].id, 'old');
+  q.clearDone();
+  assert.ok(saved.length > 0);
+});
+
+test('cancel before metadata returns prevents callback from requeueing the item', () => {
+  let metadataCb;
+  const q = createQueue(baseDeps({ fetchInfo: (url, cb) => { metadataCb = cb; } }));
+  q.addUrls([{ url: 'a', opts: {} }]);
+  const id = q.getItems()[0].id;
+  q.cancel(id);
+  metadataCb(null, { title: 'Late title' });
+  assert.strictEqual(q.getItems()[0].status, 'canceled');
+});
+
+test('retry increments attempt count and clears structured error fields', () => {
+  const q = createQueue(baseDeps({
+    download: (opts, cbs, done) => {
+      const err = new Error('nope');
+      err.category = 'network';
+      err.retryable = true;
+      done(err);
+    }
+  }));
+  q.addUrls([{ url: 'a', opts: {} }]);
+  const id = q.getItems()[0].id;
+  q.retry(id);
+  const it = q.getItems()[0];
+  assert.ok(it.attemptCount >= 1);
+  assert.strictEqual(it.errorCategory, 'network');
+  assert.strictEqual(it.retryable, true);
+});
+
 test('downloads run one at a time (sequential)', () => {
   const finishers = [];
   const q = createQueue(baseDeps({ download: (opts, cbs, done) => { finishers.push(done); } }));

@@ -5,6 +5,7 @@ var path = require('path');
 var os = require('os');
 var childProcess = require('child_process');
 var L = require('./engineLogic.js');
+var fileOps = require('./fileOps.js');
 var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
 var tiktok = require('./tiktok.js');
@@ -18,20 +19,26 @@ function run(exe, args, env, onLine, onProc, done) {
   var proc = childProcess.spawn(exe, args, { env: env });
   if (onProc) onProc(proc);
   var recent = [];
+  var stdout = L.createLineEmitter(push);
+  var stderr = L.createLineEmitter(push);
+  var finished = false;
   function push(line) {
     recent.push(line);
     if (recent.length > 30) recent.shift();
     if (onLine) onLine(line);
   }
-  function feed(buf) {
-    var lines = buf.toString().split(/\r?\n/);
-    for (var i = 0; i < lines.length; i++) if (lines[i]) push(lines[i]);
+  function finish(err) {
+    if (finished) return;
+    finished = true;
+    done(err);
   }
-  proc.stdout.on('data', feed);
-  proc.stderr.on('data', feed);
-  proc.on('error', function (e) { done(e); });
+  proc.stdout.on('data', function (buf) { stdout.feed(buf); });
+  proc.stderr.on('data', function (buf) { stderr.feed(buf); });
+  proc.on('error', function (e) { finish(e); });
   proc.on('close', function (code) {
-    if (code === 0) return done(null);
+    stdout.flush();
+    stderr.flush();
+    if (code === 0) return finish(null);
     var meaningful = recent.filter(function (l) {
       return l.indexOf('[download]') === -1 && l.indexOf('Downloading') === -1;
     });
@@ -39,8 +46,11 @@ function run(exe, args, env, onLine, onProc, done) {
     var hit = errorHints.friendly(raw);
     var err = new Error(hit ? hit.message : (path.basename(exe) + ' failed:\n' + (raw || 'unknown error')));
     err.hint = hit ? hit.hint : null;
+    err.category = hit ? hit.category : null;
+    err.retryable = hit ? hit.retryable : null;
+    err.action = hit ? hit.action : null;
     err.raw = raw;
-    done(err);
+    finish(err);
   });
 }
 
@@ -73,13 +83,36 @@ function download(opts, callbacks, cb) {
   var sep = process.platform === 'win32' ? ';' : ':';
   env.PATH = path.dirname(ytdlp) + sep + path.dirname(ffmpeg) + sep + env.PATH;
 
-  var tmp = path.join(os.tmpdir(), 'smartgrab-' + uuidish());
+  var tmp = opts.workDir || path.join(os.tmpdir(), 'smartgrab-' + uuidish());
   try {
     fs.mkdirSync(tmp, { recursive: true });
     fs.mkdirSync(opts.outputDir, { recursive: true });
   } catch (e) { return cb(e); }
 
   function cleanup() { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {} }
+  function workDirHasArtifacts() {
+    try {
+      return fs.readdirSync(tmp).some(function (f) {
+        return f.indexOf('.smartgrab-part') === -1;
+      });
+    } catch (e) { return false; }
+  }
+  function cleanupAfterFailure(err) {
+    if (err && opts.preserveWorkDir && err.retryable !== false && workDirHasArtifacts()) {
+      err.hasPartials = true;
+      return;
+    }
+    cleanup();
+  }
+  function isCanceled() {
+    return !!(opts.isCanceled && opts.isCanceled());
+  }
+  function canceledError() {
+    var err = new Error('Canceled');
+    err.canceled = true;
+    err.retryable = true;
+    return err;
+  }
 
   var audioOnly = opts.quality === 'audioOnly';
   var vinfo = L.videoFormatInfo(opts.videoFormat);
@@ -119,10 +152,12 @@ function download(opts, callbacks, cb) {
   // generic URL; clips are trimmed locally). Keeps the original error if the
   // resolver can't help either.
   function tryTikTokResolver(originalErr) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     triedResolver = true;
     onProgress(0, 'TikTok blocked on this network — trying mirror…');
     tiktok.resolve(opts.url, function (rerr, info) {
-      if (rerr || !info || !info.videoUrl) { cleanup(); return cb(originalErr); }
+      if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
+      if (rerr || !info || !info.videoUrl) { cleanupAfterFailure(originalErr); return cb(originalErr); }
       effectiveUrl = info.videoUrl;
       resolvedTemplate = tiktok.outputTemplate(info, opts.url);
       freshTmp();
@@ -131,9 +166,11 @@ function download(opts, callbacks, cb) {
   }
 
   function startAttempt(sectionsAllowed) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     onProgress(0, 'Downloading...');
     attemptDownload(sectionsAllowed, function (err, sectionsUsed) {
       if (err) {
+        if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
         if (sectionsUsed) {
           // Clean the tmp dir and retry with a full download + local trim.
           freshTmp();
@@ -141,7 +178,7 @@ function download(opts, callbacks, cb) {
           return startAttempt(false);
         }
         if (!triedResolver && tiktok.isTikTokUrl(opts.url)) return tryTikTokResolver(err);
-        cleanup();
+        cleanupAfterFailure(err);
         return cb(err);
       }
       postProcess(sectionsUsed);
@@ -158,12 +195,15 @@ function download(opts, callbacks, cb) {
   }
 
   function failUnmergeable(entries) {
-    cleanup();
     var err = new Error('yt-dlp left ' + entries.length + ' files that could not be combined into one video.');
     err.hint = 'Retry the item; if it keeps happening, copy the error and report it.';
+    err.category = 'merge';
+    err.retryable = true;
+    err.action = 'copy-diagnostics';
     err.raw = entries.map(function (e) {
       return e.name + ' (video: ' + (e.vcodec || 'none') + ', audio: ' + (e.acodec || 'none') + ')';
     }).join('\n');
+    cleanupAfterFailure(err);
     cb(err);
   }
 
@@ -176,14 +216,21 @@ function download(opts, callbacks, cb) {
   }
 
   function postProcess(sectionsUsed) {
+    if (isCanceled()) { cleanupAfterFailure(canceledError()); return cb(canceledError()); }
     var files;
     try {
       files = fs.readdirSync(tmp).filter(function (f) {
         return f.indexOf('.part') === -1 && f.indexOf('.ytdl') === -1;
       });
-    } catch (e) { cleanup(); return cb(e); }
+    } catch (e) { cleanupAfterFailure(e); return cb(e); }
 
-    if (files.length === 0) { cleanup(); return cb(new Error('Download failed — no output file.')); }
+    if (files.length === 0) {
+      var noOutput = new Error('Download failed — no output file.');
+      noOutput.category = 'output';
+      noOutput.retryable = true;
+      cleanupAfterFailure(noOutput);
+      return cb(noOutput);
+    }
     if (files.length === 1) return processMany(files, sectionsUsed);
 
     // More than one file. Probe to find out what they are:
@@ -204,11 +251,11 @@ function download(opts, callbacks, cb) {
           pair.audio.acodec, container, path.join(tmp, outName)
         );
         run(ffmpeg, margs, env, null, onProc, function (merr) {
-          if (merr) { cleanup(); return cb(merr); }
+          if (merr) { cleanupAfterFailure(merr); return cb(merr); }
           try {
             fs.rmSync(path.join(tmp, pair.video.name));
             fs.rmSync(path.join(tmp, pair.audio.name));
-          } catch (e) { cleanup(); return cb(e); }
+          } catch (e) { cleanupAfterFailure(e); return cb(e); }
           processMany([outName], sectionsUsed);
         });
         return;
@@ -240,7 +287,7 @@ function download(opts, callbacks, cb) {
       }
       if (names.length > 1) onProgress(null, 'Processing ' + (i + 1) + '/' + names.length + '...');
       processOne(names[i], sectionsUsed, function (err, r) {
-        if (err) { cleanup(); return cb(err); }
+        if (err) { cleanupAfterFailure(err); return cb(err); }
         results.push(r);
         next(i + 1);
       });
@@ -252,30 +299,38 @@ function download(opts, callbacks, cb) {
     var stem = L.stripFormatSuffix(path.basename(name, path.extname(name)));
     var srcExt = path.extname(name).replace('.', '').toLowerCase();
     var tgtExt = L.targetExt(opts);
-    var dest = path.join(opts.outputDir, L.outputFileName(stem, opts));
+    var dest = L.uniquePath(path.join(opts.outputDir, L.outputFileName(stem, opts)), fs.existsSync);
+    var partialDest = L.partialOutputPath(dest);
 
-    try { if (fs.existsSync(dest)) fs.rmSync(dest); } catch (e) {}
+    try { if (fs.existsSync(partialDest)) fs.rmSync(partialDest); } catch (e) {}
 
     function finish() {
       var bytes = 0;
       try { bytes = fs.statSync(dest).size; } catch (e) {}
       done(null, { path: dest, bytes: bytes });
     }
+    function moveFile(from, to) {
+      try { fs.renameSync(from, to); return; }
+      catch (e) {
+        fs.copyFileSync(from, to);
+        fs.rmSync(from);
+      }
+    }
+    function promotePartial() {
+      try { dest = fileOps.promoteNoOverwrite(partialDest, dest); return finish(); }
+      catch (e) { return done(e); }
+    }
 
     function applyAction(act) {
       if (act.action === 'move') {
-        try { fs.renameSync(src, dest); return finish(); }
-        catch (e) {
-          // cross-device fallback
-          try { fs.copyFileSync(src, dest); fs.rmSync(src); return finish(); }
-          catch (e2) { return done(e2); }
-        }
+        try { moveFile(src, partialDest); return promotePartial(); }
+        catch (e) { return done(e); }
       }
       // ffmpeg action
       onProgress(null, act.note || 'Processing...');
       run(ffmpeg, act.args, env, null, onProc, function (ferr) {
-        if (ferr) return done(ferr);
-        finish();
+        if (ferr) { try { fs.rmSync(partialDest); } catch (e) {} return done(ferr); }
+        promotePartial();
       });
     }
 
@@ -291,11 +346,11 @@ function download(opts, callbacks, cb) {
     if (!audioOnly && vinfo.needsReencode && !localClip) {
       probeCodec(ffprobe, src, 'v:0', env, function (vc) {
         probeCodec(ffprobe, src, 'a:0', env, function (ac) {
-          applyAction(L.choosePostProcess(Object.assign({}, base, { vcodec: vc, acodec: ac }), src, dest));
+          applyAction(L.choosePostProcess(Object.assign({}, base, { vcodec: vc, acodec: ac }), src, partialDest));
         });
       });
     } else {
-      applyAction(L.choosePostProcess(base, src, dest));
+      applyAction(L.choosePostProcess(base, src, partialDest));
     }
   }
 

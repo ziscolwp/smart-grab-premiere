@@ -269,6 +269,56 @@ function updateYtDlp(cb) {
   });
 }
 
+function parseVersion(name, output) {
+  var first = String(output || '').split(/\r?\n/)[0] || '';
+  var m = name === 'yt-dlp' || name === 'deno'
+    ? first.match(/([0-9][^\s]*)/)
+    : first.match(/version\s+([^\s]+)/i);
+  return m ? m[1] : first.replace(/^\s+|\s+$/g, '');
+}
+
+function checkOneTool(name, optional, opts) {
+  var key = name === 'yt-dlp' ? 'ytdlp' : name;
+  var resolve = opts.resolveBinary || function (n) { return resolveBinary(n, opts); };
+  var spawnSync = opts.spawnSync || childProcess.spawnSync;
+  var exe = resolve(name);
+  if (!exe) return { key: key, result: { ok: false, optional: !!optional, path: null, version: '' } };
+  var args = name === 'yt-dlp' || name === 'deno' ? ['--version'] : ['-version'];
+  var r;
+  try { r = spawnSync(exe, args, { encoding: 'utf8', env: augmentedEnv(process.env, opts.platform) }); }
+  catch (e) { return { key: key, result: { ok: false, optional: !!optional, path: exe, version: '', error: e.message } }; }
+  var output = String((r && (r.stdout || r.stderr)) || '');
+  var ok = !!r && r.status === 0;
+  return {
+    key: key,
+    result: {
+      ok: ok,
+      optional: !!optional,
+      path: exe,
+      version: ok ? parseVersion(name, output) : '',
+      error: ok ? null : (output || ('exit ' + (r ? r.status : 'unknown')))
+    }
+  };
+}
+
+function checkHealth(opts) {
+  opts = opts || {};
+  var tools = {};
+  var names = [
+    { name: 'yt-dlp', optional: false },
+    { name: 'ffmpeg', optional: false },
+    { name: 'ffprobe', optional: false },
+    { name: 'deno', optional: true }
+  ];
+  var ok = true;
+  for (var i = 0; i < names.length; i++) {
+    var checked = checkOneTool(names[i].name, names[i].optional, opts);
+    tools[checked.key] = checked.result;
+    if (!checked.result.optional && !checked.result.ok) ok = false;
+  }
+  return { ok: ok, tools: tools, action: ok ? null : 'repair-tools' };
+}
+
 module.exports = {
   resolveBinary: resolveBinary,
   defaultDirs: defaultDirs,
@@ -280,5 +330,6 @@ module.exports = {
   ensureAll: ensureAll,
   repairAll: repairAll,
   systemTool: systemTool,
+  checkHealth: checkHealth,
   APP_SUPPORT_BIN: APP_SUPPORT_BIN
 };

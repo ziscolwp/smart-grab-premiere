@@ -12,6 +12,15 @@ test('makeItem starts pending with defaults', () => {
   assert.deepStrictEqual(it.opts, { quality: 'fhd' });
 });
 
+test('makeItem includes persistence fields', () => {
+  const it = Q.makeItem('q1', 'https://x.test', {}, { now: () => 123, workDir: '/work/q1' });
+  assert.strictEqual(it.attemptCount, 0);
+  assert.strictEqual(it.workDir, '/work/q1');
+  assert.deepStrictEqual(it.outputPaths, []);
+  assert.strictEqual(it.createdAt, 123);
+  assert.strictEqual(it.updatedAt, 123);
+});
+
 test('add appends without mutating the original list', () => {
   const a = [Q.makeItem('1', 'u1', {})];
   const b = Q.add(a, [Q.makeItem('2', 'u2', {})]);
@@ -53,4 +62,16 @@ test('remove deletes by id; clearDone strips terminal states', () => {
   assert.strictEqual(list.length, 2);
   list = Q.clearDone(list);
   assert.strictEqual(list.length, 0);
+});
+
+test('rehydrate resets live statuses to safe states', () => {
+  const items = Q.rehydrate([
+    { id: 'a', status: 'fetching-info', url: 'u' },
+    { id: 'b', status: 'downloading', url: 'u', workDir: '/w' },
+    { id: 'c', status: 'importing', url: 'u', outputPath: '/done.mp4' }
+  ], { existsSync: (p) => p === '/done.mp4', now: () => 1000 });
+  assert.strictEqual(items[0].status, 'pending');
+  assert.strictEqual(items[1].status, 'canceled');
+  assert.strictEqual(items[1].retryable, true);
+  assert.strictEqual(items[2].status, 'done');
 });

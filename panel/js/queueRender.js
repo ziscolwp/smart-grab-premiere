@@ -12,6 +12,7 @@ var ICONS = {
   trash: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>',
   retry: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8"/><path d="M21 3v5h-5"/></svg>',
   folder: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+  copy: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   film: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M7 4v16M17 4v16M2 9h5M2 15h5M17 9h5M17 15h5"/></svg>'
 };
 
@@ -34,7 +35,11 @@ function buttonsFor(it) {
     b += '<button class="qbtn danger" data-act="cancel" data-id="' + it.id + '" title="Cancel">' + ICONS.cancel + '</button>';
   } else {
     if (it.status === 'error' || it.status === 'canceled') {
-      b += '<button class="qbtn" data-act="retry" data-id="' + it.id + '" title="Retry">' + ICONS.retry + '</button>';
+      var retryTitle = it.retryable && it.workDirHasPartials ? 'Resume' : 'Retry';
+      b += '<button class="qbtn" data-act="retry" data-id="' + it.id + '" title="' + retryTitle + '">' + ICONS.retry + '</button>';
+    }
+    if (it.status === 'error') {
+      b += '<button class="qbtn" data-act="diagnostics" data-id="' + it.id + '" title="Copy diagnostics">' + ICONS.copy + '</button>';
     }
     if (it.status === 'done' && it.outputPath) {
       b += '<button class="qbtn" data-act="reveal" data-id="' + it.id + '" title="Show file">' + ICONS.folder + '</button>';

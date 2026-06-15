@@ -1,6 +1,16 @@
 # Changelog
 
-## 3.2.1 — 2026-06-13
+## 3.3.0 — 2026-06-15
+
+### Added
+- **Google Flow support.** Paste a Flow **Share link** (in Flow: hover a clip
+  ▸ More ▸ Share ▸ Copy link) and it downloads straight into your project bin
+  like any other source — edit-ready H.264/AAC, no re-encode, audio intact, no
+  manual download and no API key. Clips import with a clean
+  `Flow clip [id].mp4` name and a "Flow" queue badge. A wrong or unshared link
+  gets a clear "use the Share link" hint instead of a generic error.
+  Note: only the **Share link** exposes the video — the editor/project URL in
+  your browser address bar won't work.
 
 ### Fixed
 - **Windows paste shortcuts now work in the panel.** Ctrl+V/C/X/A use the

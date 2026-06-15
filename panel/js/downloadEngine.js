@@ -8,6 +8,7 @@ var L = require('./engineLogic.js');
 var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
 var tiktok = require('./tiktok.js');
+var flow = require('./flow.js');
 
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
@@ -90,13 +91,17 @@ function download(opts, callbacks, cb) {
   var effectiveUrl = opts.url;
   var triedResolver = false;
   var resolvedTemplate = null;   // clean yt-dlp -o for the resolved CDN URL
+  // Flow share links download via the generic extractor untouched; this just
+  // renames the file from a bare UUID to "Flow clip [id]" (null for any other URL).
+  var presetTemplate = flow.outputTemplate(opts.url);
 
   // First try the fast path (server-side --download-sections for clips).
   // If that yt-dlp run fails and sections were in play, retry once with a
   // full download + local trim — some sites/formats don't support sections.
   function attemptDownload(sectionsAllowed, attemptCb) {
     var attemptOpts = sectionsAllowed ? opts : Object.assign({}, opts, { trimMode: 'precise' });
-    if (resolvedTemplate) attemptOpts = Object.assign({}, attemptOpts, { outputTemplate: resolvedTemplate });
+    var template = resolvedTemplate || presetTemplate;
+    if (template) attemptOpts = Object.assign({}, attemptOpts, { outputTemplate: template });
     var sectionsUsed = L.useSections(attemptOpts);
     // Full binary path (not its directory) — leaves yt-dlp no room to
     // mis-resolve ffmpeg and silently skip merging.

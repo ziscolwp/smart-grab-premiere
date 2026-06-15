@@ -4,7 +4,8 @@ A Premiere Pro panel that downloads online video with `yt-dlp` + `ffmpeg` and
 auto-imports it into your current project, inside a "Downloaded Video" bin.
 
 Works with YouTube, Instagram, X/Twitter, TikTok, Reddit, Loom, Vimeo, Twitch,
-Facebook and [over a thousand other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+Facebook, **Google Flow** (paste a clip's Share link — see FAQ) and
+[over a thousand other sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 ## Install — two clicks, no terminal, no git
 
@@ -107,6 +108,15 @@ Sites serve 4K in codecs Premiere edits poorly (VP9/AV1), so **MP4 ·
 edit-ready** converts them to H.264 once, up front. 1080p usually has an
 H.264 source and needs no conversion. Want the untouched original
 instead? Pick **MKV · original** or **MP4 · no re-encode**.
+
+**How do I pull a Google Flow (Veo) clip into Premiere?**
+In Flow, hover the clip ▸ **More ▸ Share ▸ Copy link**, then paste that Share
+link into Smart Grab and Add to Queue — it imports like any other download, as
+an edit-ready H.264/AAC MP4 with audio, named `Flow clip [id].mp4`. No manual
+download, no API key. Two things to know: only the **Share link** works (the
+editor/project URL in your address bar has no downloadable video in it), and
+the clip stays grabbable only while it's shared — if you unshare or delete it
+in Flow, the link stops working.
 
 **What can't be grabbed?**
 Sites that hide the video behind their own JavaScript player or a

@@ -1,10 +1,27 @@
 # HANDOFF — Smart Grab: make blocked-region TikTok downloads fast
 
-> **STATUS: OPEN.** v3.2.0 makes TikTok *work* on ISP-blocked networks (e.g.
-> India) via an automatic mirror fallback. It is correct but **slow**: a short
-> clip can take ~50–60s, almost all of it spent waiting for doomed direct
-> attempts before the mirror kicks in. This doc hands off the *performance &
-> robustness* refinement. The feature itself works — do not regress it.
+> **STATUS: RESOLVED in 3.4.0 (2026-06-17).** The blocked-TikTok latency below
+> is fixed. What shipped (verified on Airtel/India):
+> - **Fail-fast first attempt** — `buildYtDlpArgs` gained a `fastFail` profile
+>   (`--socket-timeout 5 --retries 1 --fragment-retries 1 --extractor-retries 0`)
+>   used for the native TikTok attempt. A doomed native probe now gives up in
+>   **~5s**, down from **~27s** (raw `yt-dlp` timing). Unit-tested in
+>   `engineLogic.test.js`.
+> - **No double-fail on clips** — `startAttempt`'s error handler reaches for the
+>   resolver on the *first* TikTok failure instead of retrying sections→full, so
+>   a blocked clip no longer pays ~27s twice (Direction 2 below).
+> - **Per-session block memory** — `tiktok.isBlocked()/markBlocked()`. After the
+>   first fallback, later TikTok grabs skip the native attempt entirely and
+>   resolve straight away (Direction 1). Unit-tested in `tiktok.test.js`.
+> - **Metadata via mirror first** — `metadata.fetchInfo` resolves TikTok titles/
+>   durations through the mirror first (~1s) instead of a slow native probe, so
+>   queue rows fill fast on blocked networks.
+> - Unblocked networks still use the native path first for the actual download,
+>   so quality is unchanged there.
+>
+> The remaining open idea is **Direction 4** (reduce reliance on the single
+> tikwm mirror — multiple backends / self-hosted resolver). The rest of this doc
+> is kept as the original problem statement and rationale.
 
 > **For the next session / model.** Read this whole file before touching code.
 > Then read `panel/js/tiktok.js`, the resolver wiring in

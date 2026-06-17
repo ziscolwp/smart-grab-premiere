@@ -19,6 +19,15 @@ function isTikTokUrl(url) {
   return /tiktok\.com/i.test(String(url || ''));
 }
 
+// Per-session memory: once a native TikTok fetch fails and the mirror resolver
+// saves the grab, we know this network blocks TikTok — so subsequent TikTok
+// downloads skip the doomed native attempt and go straight to the mirror,
+// saving the ~5s fail-fast probe each time. Cleared only by reopening the panel.
+var networkBlocksTikTok = false;
+function isBlocked() { return networkBlocksTikTok; }
+function markBlocked() { networkBlocksTikTok = true; }
+function resetBlocked() { networkBlocksTikTok = false; }
+
 // tikwm.com: a long-running public TikTok resolver. hd=1 asks for the HD,
 // watermark-free rendition; parseTikwm falls back to the other renditions.
 function tikwmUrl(videoUrl) {
@@ -102,5 +111,8 @@ module.exports = {
   tikwmUrl: tikwmUrl,
   parseTikwm: parseTikwm,
   outputTemplate: outputTemplate,
-  resolve: resolve
+  resolve: resolve,
+  isBlocked: isBlocked,
+  markBlocked: markBlocked,
+  resetBlocked: resetBlocked
 };

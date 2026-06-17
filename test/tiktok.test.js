@@ -30,6 +30,15 @@ test('isTikTokUrl: matches every TikTok host form, rejects others', () => {
   assert.strictEqual(T.isTikTokUrl(null), false);
 });
 
+test('blocked flag: false by default, markBlocked sets it, resetBlocked clears it', () => {
+  T.resetBlocked();
+  assert.strictEqual(T.isBlocked(), false);
+  T.markBlocked();
+  assert.strictEqual(T.isBlocked(), true);
+  T.resetBlocked(); // leave the shared module flag clean for other tests
+  assert.strictEqual(T.isBlocked(), false);
+});
+
 test('tikwmUrl: hd=1 and the source URL is percent-encoded (raw query not leaked)', () => {
   const src = 'https://www.tiktok.com/@u/video/123?is_from_webapp=1';
   const u = T.tikwmUrl(src);

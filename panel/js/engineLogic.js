@@ -18,12 +18,16 @@ function qualityToFormat(quality) {
 }
 
 // --format-sort: resolution first (capped for fixed qualities, so "1080p"
-// means "best ≤1080"), then prefer H.264+AAC so mp4 targets need no
+// means "best ≤1080"), then `proto` to prefer direct https/DASH over
+// fragmented HLS (m3u8) — same picture, but ~half the bytes and far fewer
+// round-trips on sites like YouTube (HLS muxed formats are both bigger and
+// chunked). proto sits before the codec keys so it outranks HLS's
+// muxed-with-audio variant; then prefer H.264+AAC so mp4 targets need no
 // re-encode. mkv ("original") keeps the site's natural best codec.
 function formatSort(quality, videoFormat) {
   if (quality === 'audioOnly') return null;
   var h = HEIGHT[quality];
-  var parts = [h ? 'res:' + h : 'res'];
+  var parts = [h ? 'res:' + h : 'res', 'proto'];
   if (videoFormat !== 'mkv') parts.push('vcodec:h264', 'acodec:aac');
   return parts.join(',');
 }
@@ -88,13 +92,28 @@ function buildYtDlpArgs(opts, tmpDir, ffmpegDir, url) {
     // keeps them for error reports.
     '--windows-filenames',
     '--ffmpeg-location', ffmpegDir,
-    '--retries', '10',
-    '--fragment-retries', '10',
-    '--concurrent-fragments', '4',
-    '--socket-timeout', '20',
-    '--extractor-retries', '3',
-    '--retry-sleep', 'extractor:5'
+    '--concurrent-fragments', '4'
   ]);
+  // Reliability profile. The patient default rides out transient CDN hiccups.
+  // fastFail is for hitting a TikTok page on a possibly-blocked network: we
+  // want yt-dlp to give up in seconds so the mirror resolver can take over,
+  // instead of grinding through a ~27s timeout-and-retry cascade first.
+  if (opts.fastFail) {
+    args = args.concat([
+      '--socket-timeout', '5',
+      '--retries', '1',
+      '--fragment-retries', '1',
+      '--extractor-retries', '0'
+    ]);
+  } else {
+    args = args.concat([
+      '--retries', '10',
+      '--fragment-retries', '10',
+      '--socket-timeout', '20',
+      '--extractor-retries', '3',
+      '--retry-sleep', 'extractor:5'
+    ]);
+  }
   if (opts.noPlaylist !== false) args.push('--no-playlist');
   args = args.concat(cookieArgs(opts.cookiesBrowser, opts.cookiesFile));
   args = args.concat(proxyArgs(opts.proxyUrl));

@@ -10,8 +10,13 @@ Why Smart Grab calls yt-dlp the way it does. Sources: the official
   soft preference that never fails — crucial for sites that only offer a single
   muxed format (X, Instagram, Reddit, Loom, TikTok). The trailing `/b` covers them.
 - Default sort prefers AV1/VP9 over H.264, so for edit-ready MP4 we pass
-  `-S res:<cap>,vcodec:h264,acodec:aac`: resolution wins first (no silent quality
-  drop), H.264+AAC breaks ties so most files skip the local re-encode.
+  `-S res:<cap>,proto,vcodec:h264,acodec:aac`: resolution wins first (no silent
+  quality drop), then `proto` prefers direct https/DASH over fragmented HLS
+  (same picture, ~half the bytes and far fewer round-trips on YouTube — it picks
+  itag `299+258` over the muxed HLS `301`), then H.264+AAC breaks ties so most
+  files skip the local re-encode. `proto` sits **before** the codec keys on
+  purpose: HLS's muxed format carries audio, so an `acodec:aac` tiebreak alone
+  would otherwise rank it above the (audio-less) direct DASH video stream.
 - `res:1080` means "largest ≤1080, else smallest above" — it can't fail either.
 
 ## Clips: `--download-sections "*START-END"`
@@ -37,6 +42,7 @@ Why Smart Grab calls yt-dlp the way it does. Sources: the official
 | `--concurrent-fragments 4` | 2-4× faster HLS/DASH; >5 risks 403s |
 | `--socket-timeout 20` | don't hang forever |
 | `--retry-sleep extractor:5 --extractor-retries 3` | rate-limit grace |
+| `fastFail`: `--socket-timeout 5 --retries 1 --fragment-retries 1 --extractor-retries 0` | TikTok on a maybe-blocked network — give up in ~5s so the mirror resolver can take over. Only the native TikTok attempt uses it; everything else (and the resolved CDN download) uses the patient profile above. |
 | `--windows-filenames` | files survive Mac→Windows project handoff |
 | `-o "%(title).80B [%(id)s].%(ext)s"` | byte-safe title truncation (FAQ recipe) |
 | `--progress-template "download:SG\|..."` | machine-readable progress (README says don't parse human output) |

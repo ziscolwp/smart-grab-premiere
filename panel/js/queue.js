@@ -8,6 +8,9 @@ function createQueue(deps) {
   var items = [];
   var fetching = 0;
   var CONC = deps.titleConcurrency || 4;
+  // Downloads are network-bound (mostly waiting on the server), so running a
+  // few at once near-linearly cuts wall-clock time for a multi-URL batch.
+  var DL_CONC = deps.downloadConcurrency || 3;
   var procs = {};   // id -> child process (kept out of item objects)
 
   function notify() { deps.onChange(items); }
@@ -46,16 +49,28 @@ function createQueue(deps) {
     }
   }
 
-  function pumpDownloads() {
-    if (qs.anyDownloading(items)) return;
-    var next = qs.nextQueued(items);
-    if (!next) return;
-    var id = next.id;
-    items = qs.setStatus(items, id, 'downloading', { progress: 0, statusMsg: 'Starting…' }); notify();
+  function countDownloading() {
+    var n = 0;
+    for (var i = 0; i < items.length; i++) if (items[i].status === 'downloading') n++;
+    return n;
+  }
 
-    deps.resolveOutputDir(next.opts, function (derr, outputDir) {
+  // Fill every free download slot. Each item flips to 'downloading' synchronously
+  // before the next is picked, so the same item is never started twice; a slot
+  // frees when a download finishes/errors, which re-calls this to top up.
+  function pumpDownloads() {
+    while (countDownloading() < DL_CONC) {
+      var next = qs.nextQueued(items);
+      if (!next) break;
+      items = qs.setStatus(items, next.id, 'downloading', { progress: 0, statusMsg: 'Starting…' }); notify();
+      startDownload(next.id, next.url, next.opts);
+    }
+  }
+
+  function startDownload(id, url, opts) {
+    deps.resolveOutputDir(opts, function (derr, outputDir) {
       if (derr) { setStatus(id, 'error', { statusMsg: derr.message }); pumpDownloads(); return; }
-      var dlOpts = Object.assign({}, next.opts, { url: next.url, outputDir: outputDir, extRoot: deps.extRoot });
+      var dlOpts = Object.assign({}, opts, { url: url, outputDir: outputDir, extRoot: deps.extRoot });
       deps.download(dlOpts, {
         onProgress: function (pct, msg) {
           var fields = { statusMsg: msg || '' };
@@ -110,8 +125,11 @@ function createQueue(deps) {
   }
 
   function remove(id) {
-    var active = qs.firstWithStatus(items, 'downloading');
-    if (active && active.id === id) return; // can't remove the active download; cancel it first
+    // With parallel downloads any item can be in flight — block removing one
+    // that's downloading (cancel it first) so its row can't vanish mid-download.
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].id === id && items[i].status === 'downloading') return;
+    }
     items = qs.remove(items, id); notify();
   }
 

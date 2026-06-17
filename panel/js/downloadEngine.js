@@ -8,6 +8,7 @@ var L = require('./engineLogic.js');
 var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
 var tiktok = require('./tiktok.js');
+var flow = require('./flow.js');
 
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
@@ -90,13 +91,24 @@ function download(opts, callbacks, cb) {
   var effectiveUrl = opts.url;
   var triedResolver = false;
   var resolvedTemplate = null;   // clean yt-dlp -o for the resolved CDN URL
+  // Flow share links download via the generic extractor untouched; this just
+  // renames the file from a bare UUID to "Flow clip [id]" (null for any other URL).
+  var presetTemplate = flow.outputTemplate(opts.url);
+  // Is the SOURCE a TikTok page (vs. the resolved CDN URL we may set below)?
+  // Drives the fail-fast-then-mirror path on networks that block TikTok.
+  var tiktokNative = tiktok.isTikTokUrl(opts.url);
 
   // First try the fast path (server-side --download-sections for clips).
   // If that yt-dlp run fails and sections were in play, retry once with a
   // full download + local trim — some sites/formats don't support sections.
   function attemptDownload(sectionsAllowed, attemptCb) {
     var attemptOpts = sectionsAllowed ? opts : Object.assign({}, opts, { trimMode: 'precise' });
-    if (resolvedTemplate) attemptOpts = Object.assign({}, attemptOpts, { outputTemplate: resolvedTemplate });
+    var template = resolvedTemplate || presetTemplate;
+    if (template) attemptOpts = Object.assign({}, attemptOpts, { outputTemplate: template });
+    // Native TikTok page on a maybe-blocked network: fail in ~5s, not ~27s, so
+    // the mirror can take over. Once resolved, effectiveUrl is a plain CDN URL
+    // (triedResolver true) and gets the normal patient profile.
+    if (tiktokNative && !triedResolver) attemptOpts = Object.assign({}, attemptOpts, { fastFail: true });
     var sectionsUsed = L.useSections(attemptOpts);
     // Full binary path (not its directory) — leaves yt-dlp no room to
     // mis-resolve ffmpeg and silently skip merging.
@@ -123,6 +135,9 @@ function download(opts, callbacks, cb) {
     onProgress(0, 'TikTok blocked on this network — trying mirror…');
     tiktok.resolve(opts.url, function (rerr, info) {
       if (rerr || !info || !info.videoUrl) { cleanup(); return cb(originalErr); }
+      // The mirror worked where native couldn't — remember this network blocks
+      // TikTok so later grabs skip straight to the mirror.
+      tiktok.markBlocked();
       effectiveUrl = info.videoUrl;
       resolvedTemplate = tiktok.outputTemplate(info, opts.url);
       freshTmp();
@@ -134,13 +149,15 @@ function download(opts, callbacks, cb) {
     onProgress(0, 'Downloading...');
     attemptDownload(sectionsAllowed, function (err, sectionsUsed) {
       if (err) {
+        // TikTok block: a second native attempt won't fare better, so skip the
+        // sections->full retry and reach for the mirror resolver right away.
+        if (!triedResolver && tiktokNative) return tryTikTokResolver(err);
         if (sectionsUsed) {
           // Clean the tmp dir and retry with a full download + local trim.
           freshTmp();
           onProgress(0, 'Fast trim unavailable — downloading full video...');
           return startAttempt(false);
         }
-        if (!triedResolver && tiktok.isTikTokUrl(opts.url)) return tryTikTokResolver(err);
         cleanup();
         return cb(err);
       }
@@ -299,7 +316,13 @@ function download(opts, callbacks, cb) {
     }
   }
 
-  startAttempt(true);
+  if (tiktokNative && tiktok.isBlocked()) {
+    // This network already blocked TikTok this session — skip the doomed native
+    // attempt and resolve straight away.
+    tryTikTokResolver(new Error('TikTok is blocked on this network and the mirror could not be reached. Retry in a moment.'));
+  } else {
+    startAttempt(true);
+  }
 }
 
 module.exports = { download: download };

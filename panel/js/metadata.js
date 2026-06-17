@@ -7,6 +7,31 @@ var tiktok = require('./tiktok.js');
 
 var INFO_TEMPLATE = '%(title)s\t%(duration)s\t%(thumbnail)s\t%(extractor_key)s\t%(uploader)s';
 
+// --- Short-lived metadata cache --------------------------------------------
+// The same URL's title/duration gets needed in quick succession (the clip
+// slider reads it, then the queue row, then a manual re-add). Those don't
+// change minute-to-minute, so memoizing for a few minutes removes the repeated
+// network round-trips that surface as the "reading video length" lag. `now` is
+// injectable so the TTL is unit-testable without real time.
+var INFO_TTL_MS = 5 * 60 * 1000;
+var infoCache = {};   // key -> { at, info }
+
+function cacheKey(url, opts) {
+  opts = opts || {};
+  return [url || '', opts.cookiesBrowser || '', opts.cookiesFile || '', opts.proxyUrl || ''].join(' ');
+}
+function cacheGet(key, now) {
+  var e = infoCache[key];
+  if (!e) return null;
+  if (((now == null ? Date.now() : now) - e.at) < INFO_TTL_MS) return e.info;
+  delete infoCache[key];
+  return null;
+}
+function cachePut(key, info, now) {
+  if (info) infoCache[key] = { at: (now == null ? Date.now() : now), info: info };
+}
+function clearInfoCache() { infoCache = {}; }
+
 function firstErrLine(err) {
   var lines = String(err).split(/\r?\n/).filter(function (l) { return l.indexOf('ERROR') !== -1; });
   return lines.length ? lines[lines.length - 1].replace(/^ERROR:\s*/, '') : '';
@@ -35,6 +60,34 @@ function parseInfoLine(line, url) {
 // cb(err, { title, durationSec, thumbnail, extractor, uploader })
 function fetchInfo(url, opts, cb) {
   opts = opts || {};
+  var key = cacheKey(url, opts);
+  var hit = cacheGet(key);
+  if (hit) return cb(null, hit);
+
+  function done(err, info) {
+    if (!err && info) cachePut(key, info);
+    cb(err, info);
+  }
+
+  // TikTok: the mirror resolver is one fast HTTP GET and works regardless of
+  // region, whereas a native yt-dlp probe stalls for ~20s on networks that
+  // block TikTok (the exact lag this panel exists to avoid). Resolve first;
+  // only fall back to a native probe if the resolver can't help.
+  if (tiktok.isTikTokUrl(url)) {
+    return tiktok.resolve(url, function (rerr, info) {
+      if (!rerr && info) {
+        return done(null, {
+          title: info.title || url, durationSec: info.durationSec,
+          thumbnail: info.thumbnail || null, extractor: 'TikTok', uploader: info.uploader || null
+        });
+      }
+      fetchInfoNative(url, opts, done);
+    });
+  }
+  fetchInfoNative(url, opts, done);
+}
+
+function fetchInfoNative(url, opts, cb) {
   var bin = binaries.resolveBinary('yt-dlp', { extRoot: opts.extRoot });
   if (!bin) return cb(new Error('yt-dlp not found'));
   var args = ['--no-playlist', '--no-warnings', '--print', INFO_TEMPLATE]
@@ -47,21 +100,7 @@ function fetchInfo(url, opts, cb) {
   p.stderr.on('data', function (d) { err += d.toString(); });
   p.on('error', cb);
   p.on('close', function (code) {
-    if (code !== 0) {
-      // Same ISP block as the download path: if yt-dlp can't reach a TikTok
-      // URL, pull title/duration/thumbnail from the resolver so the queue row
-      // still shows real info instead of the bare URL.
-      if (tiktok.isTikTokUrl(url)) {
-        return tiktok.resolve(url, function (rerr, info) {
-          if (rerr || !info) return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
-          cb(null, {
-            title: info.title || url, durationSec: info.durationSec,
-            thumbnail: info.thumbnail || null, extractor: 'TikTok', uploader: info.uploader || null
-          });
-        });
-      }
-      return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
-    }
+    if (code !== 0) return cb(new Error(firstErrLine(err) || ('yt-dlp exit ' + code)));
     cb(null, parseInfoLine(out.split(/\r?\n/)[0] || '', url));
   });
 }
@@ -131,5 +170,10 @@ module.exports = {
   expandPlaylist: expandPlaylist,
   exportCookies: exportCookies,
   parseInfoLine: parseInfoLine,
-  cookieArgs: cookieArgs
+  cookieArgs: cookieArgs,
+  cacheKey: cacheKey,
+  cacheGet: cacheGet,
+  cachePut: cachePut,
+  clearInfoCache: clearInfoCache,
+  INFO_TTL_MS: INFO_TTL_MS
 };

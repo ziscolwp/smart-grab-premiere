@@ -52,6 +52,18 @@ test('DNS failure (getaddrinfo) maps to the same network hint', () => {
   assert.ok(r.hint.indexOf('VPN') !== -1);
 });
 
+test('Google Flow fetch failure points at the Share link', () => {
+  // Real shape from yt-dlp when a Flow link is unshared/deleted: the og-video
+  // endpoint 500s, and labs.google appears in the surrounding extractor lines.
+  const raw = [
+    '[generic] Extracting URL: https://labs.google/fx/api/og-video/shared/00000000-0000-0000-0000-000000000000',
+    'ERROR: [generic] Unable to download webpage: HTTP Error 500: Internal Server Error'
+  ].join('\n');
+  const r = E.friendly(raw);
+  assert.ok(r.message.indexOf('Flow') !== -1);
+  assert.ok(r.hint.indexOf('Share') !== -1);
+});
+
 test('unknown errors return null (caller keeps raw text)', () => {
   assert.strictEqual(E.friendly('something completely novel'), null);
   assert.strictEqual(E.friendly(''), null);

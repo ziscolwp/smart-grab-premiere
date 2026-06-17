@@ -25,9 +25,25 @@ test('synchronous fakes: all items reach done', () => {
   assert.strictEqual(items[0].title, 'T:a');
 });
 
-test('downloads run one at a time (sequential)', () => {
+test('downloads run concurrently up to the cap, promoting queued as slots free', () => {
   const finishers = [];
-  const q = createQueue(baseDeps({ download: (opts, cbs, done) => { finishers.push(done); } }));
+  const q = createQueue(baseDeps({
+    downloadConcurrency: 2,
+    download: (opts, cbs, done) => { finishers.push(done); }
+  }));
+  q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }, { url: 'c', opts: {} }]);
+  let items = q.getItems();
+  assert.strictEqual(items.filter(i => i.status === 'downloading').length, 2); // cap of 2 respected
+  assert.strictEqual(items.filter(i => i.status === 'queued').length, 1);
+  finishers[0](null, { path: '/out/a.mp4', size: '1 MB' });   // free one slot
+  items = q.getItems();
+  assert.strictEqual(items.filter(i => i.status === 'done').length, 1);
+  assert.strictEqual(items.filter(i => i.status === 'downloading').length, 2); // third promoted
+});
+
+test('downloadConcurrency:1 keeps downloads strictly sequential', () => {
+  const finishers = [];
+  const q = createQueue(baseDeps({ downloadConcurrency: 1, download: (opts, cbs, done) => { finishers.push(done); } }));
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
   let items = q.getItems();
   assert.strictEqual(items.filter(i => i.status === 'downloading').length, 1);
@@ -102,4 +118,12 @@ test('remove drops a non-active item; clearDone strips terminals', () => {
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
   q.clearDone();
   assert.strictEqual(q.getItems().length, 0);
+});
+
+test('remove refuses an in-flight download (cancel first)', () => {
+  const q = createQueue(baseDeps({ downloadConcurrency: 1, download: () => {} })); // never finishes
+  q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
+  const dl = q.getItems().find(i => i.status === 'downloading');
+  q.remove(dl.id);
+  assert.ok(q.getItems().some(i => i.id === dl.id)); // still present
 });

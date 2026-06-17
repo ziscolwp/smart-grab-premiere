@@ -42,6 +42,9 @@ test('source identifies the major sites', () => {
   assert.strictEqual(U.source('https://www.twitch.tv/videos/1').key, 'twitch');
   assert.strictEqual(U.source('https://fb.watch/abc/').key, 'facebook');
 });
+test('source identifies Google Flow share links', () => {
+  assert.strictEqual(U.source('https://labs.google/fx/tools/flow/shared/video/be83e530-cac3-43ed-90e4-77dfe9efe1ec').key, 'flow');
+});
 test('source falls back to generic web', () => {
   assert.strictEqual(U.source('https://example.com/video.mp4').key, 'web');
 });

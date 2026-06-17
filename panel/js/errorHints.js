@@ -3,6 +3,13 @@
 // Pure string matching — no I/O.
 
 var RULES = [
+  // Flow first: labs.google appears only in Google Flow failures, so a failed
+  // fetch there means the link isn't a public Share link (unshared, deleted, or
+  // an editor/project URL) — not a cookie/extractor problem the generic rules
+  // below would mis-diagnose.
+  { re: /labs\.google/i,
+    message: "Couldn't fetch this Google Flow video.",
+    hint: 'Paste the Share link — in Flow, hover the clip ▸ More ▸ Share ▸ Copy link — and make sure the clip is still shared. The editor/project URL won\'t work, only the Share link.' },
   { re: /sign in to confirm|confirm you.?re not a bot/i,
     message: 'YouTube is asking for sign-in verification.',
     hint: 'In Settings, set "Browser cookies" to a browser where you are logged in, then retry.' },

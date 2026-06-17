@@ -8,16 +8,16 @@ test('qualityToFormat: permissive selector with muxed fallback', () => {
   assert.strictEqual(L.qualityToFormat('audioOnly'), 'ba/b');
 });
 
-test('formatSort: res cap first, then h264/aac preference for mp4 targets', () => {
-  assert.strictEqual(L.formatSort('fhd', 'mp4Premiere'), 'res:1080,vcodec:h264,acodec:aac');
-  assert.strictEqual(L.formatSort('uhd', 'mov'), 'res:2160,vcodec:h264,acodec:aac');
-  assert.strictEqual(L.formatSort('sd', 'mp4Raw'), 'res:480,vcodec:h264,acodec:aac');
+test('formatSort: res cap first, then https/DASH over HLS, then h264/aac for mp4 targets', () => {
+  assert.strictEqual(L.formatSort('fhd', 'mp4Premiere'), 'res:1080,proto,vcodec:h264,acodec:aac');
+  assert.strictEqual(L.formatSort('uhd', 'mov'), 'res:2160,proto,vcodec:h264,acodec:aac');
+  assert.strictEqual(L.formatSort('sd', 'mp4Raw'), 'res:480,proto,vcodec:h264,acodec:aac');
 });
-test('formatSort: best quality has uncapped res but keeps codec preference', () => {
-  assert.strictEqual(L.formatSort('best', 'mp4Premiere'), 'res,vcodec:h264,acodec:aac');
+test('formatSort: best quality has uncapped res but keeps proto + codec preference', () => {
+  assert.strictEqual(L.formatSort('best', 'mp4Premiere'), 'res,proto,vcodec:h264,acodec:aac');
 });
-test('formatSort: mkv (original) keeps natural codec ranking', () => {
-  assert.strictEqual(L.formatSort('fhd', 'mkv'), 'res:1080');
+test('formatSort: mkv (original) keeps natural codec ranking but still prefers https/DASH', () => {
+  assert.strictEqual(L.formatSort('fhd', 'mkv'), 'res:1080,proto');
 });
 test('formatSort: audio only needs no sort', () => {
   assert.strictEqual(L.formatSort('audioOnly', 'mp4Premiere'), null);
@@ -50,7 +50,7 @@ test('buildYtDlpArgs: video args include sort, reliability flags, merge format',
   );
   assert.strictEqual(argValue(args, '-P'), '/tmp/work');
   assert.strictEqual(argValue(args, '-f'), 'bv*+ba/b');
-  assert.strictEqual(argValue(args, '-S'), 'res:1080,vcodec:h264,acodec:aac');
+  assert.strictEqual(argValue(args, '-S'), 'res:1080,proto,vcodec:h264,acodec:aac');
   assert.strictEqual(argValue(args, '--ffmpeg-location'), '/opt/homebrew/bin');
   assert.strictEqual(argValue(args, '--merge-output-format'), 'mp4');
   assert.strictEqual(argValue(args, '--concurrent-fragments'), '4');
@@ -61,6 +61,19 @@ test('buildYtDlpArgs: video args include sort, reliability flags, merge format',
   assert.ok(String(argValue(args, '--progress-template')).indexOf('SG|') !== -1);
   assert.ok(String(argValue(args, '-o')).indexOf('%(title).80B') === 0);
   assert.strictEqual(args[args.length - 1], 'https://x/y');
+});
+
+test('buildYtDlpArgs: fastFail swaps the patient profile for a give-up-quick one', () => {
+  const fast = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere', fastFail: true }, '/t', '/f', 'U');
+  assert.strictEqual(argValue(fast, '--socket-timeout'), '5');
+  assert.strictEqual(argValue(fast, '--retries'), '1');
+  assert.strictEqual(argValue(fast, '--fragment-retries'), '1');
+  assert.strictEqual(argValue(fast, '--extractor-retries'), '0');
+  assert.strictEqual(fast.indexOf('--retry-sleep'), -1); // no patient backoff
+  const patient = L.buildYtDlpArgs({ quality: 'fhd', videoFormat: 'mp4Premiere' }, '/t', '/f', 'U');
+  assert.strictEqual(argValue(patient, '--socket-timeout'), '20');
+  assert.strictEqual(argValue(patient, '--retries'), '10');
+  assert.strictEqual(argValue(patient, '--retry-sleep'), 'extractor:5');
 });
 
 test('buildYtDlpArgs: outputTemplate overrides the default -o (resolver path)', () => {
@@ -75,7 +88,7 @@ test('buildYtDlpArgs: outputTemplate overrides the default -o (resolver path)', 
 test('buildYtDlpArgs: MKV merge format, no codec sort', () => {
   const args = L.buildYtDlpArgs({ quality: 'best', videoFormat: 'mkv' }, '/t', '/f', 'URL');
   assert.strictEqual(argValue(args, '--merge-output-format'), 'mkv');
-  assert.strictEqual(argValue(args, '-S'), 'res');
+  assert.strictEqual(argValue(args, '-S'), 'res,proto');
 });
 
 test('buildYtDlpArgs: audio-only extraction args', () => {

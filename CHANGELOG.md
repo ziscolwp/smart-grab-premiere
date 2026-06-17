@@ -1,6 +1,41 @@
 # Changelog
 
-## 3.2.1 — 2026-06-13
+## 3.4.0 — 2026-06-17
+
+### Changed
+- **Faster downloads.** The panel now prefers direct (DASH/https) video streams
+  over fragmented HLS when a site offers both — same resolution and codec, but
+  roughly half the bytes and far fewer round-trips (on YouTube it picks the
+  direct 1080p stream instead of the chunked one). Most grabs finish noticeably
+  quicker with no change in quality.
+- **Faster blocked-region TikTok.** On networks that block TikTok (e.g. India),
+  the panel no longer burns ~27–54s on doomed direct attempts before reaching
+  the mirror: the first attempt now gives up in ~5s, and once a block is
+  detected it routes straight to the mirror for the rest of the session.
+  Title/length for TikTok links also come from the mirror first, so queue rows
+  fill in ~1s instead of stalling. Unblocked networks still use the native path
+  first, so quality is unchanged for everyone else.
+- **Snappier "reading video length."** Title and duration are cached for a few
+  minutes, so toggling *Trim to a clip* and then adding the same link no longer
+  re-fetches the same info over the network.
+
+### Added
+- **Parallel downloads.** The queue downloads up to 3 links at once instead of
+  strictly one-at-a-time, so a batch of clips finishes in roughly a third of the
+  time. Each row still shows its own progress; an in-flight item must be canceled
+  before it can be removed.
+
+## 3.3.0 — 2026-06-15
+
+### Added
+- **Google Flow support.** Paste a Flow **Share link** (in Flow: hover a clip
+  ▸ More ▸ Share ▸ Copy link) and it downloads straight into your project bin
+  like any other source — edit-ready H.264/AAC, no re-encode, audio intact, no
+  manual download and no API key. Clips import with a clean
+  `Flow clip [id].mp4` name and a "Flow" queue badge. A wrong or unshared link
+  gets a clear "use the Share link" hint instead of a generic error.
+  Note: only the **Share link** exposes the video — the editor/project URL in
+  your browser address bar won't work.
 
 ### Fixed
 - **Windows paste shortcuts now work in the panel.** Ctrl+V/C/X/A use the

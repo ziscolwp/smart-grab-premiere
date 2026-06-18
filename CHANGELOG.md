@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.5.0 — 2026-06-18
+
+### Changed
+- **Downloads start instantly.** A grab now begins the moment you add it instead
+  of waiting for the title and thumbnail to load first — those still appear, just
+  in parallel. On YouTube that shaves the second or two each video used to spend
+  fetching its info twice.
+- **Smooth, flicker-free queue.** The download list now updates only the rows that
+  changed instead of rebuilding the whole list on every progress tick, so
+  thumbnails no longer flash and the panel stays responsive even with several
+  downloads running at once.
+- **Imports no longer hold up downloads.** As soon as a file finishes downloading
+  it hands off to Premiere and the next grab starts right away, instead of the
+  queue pausing while each clip is imported. A post with several videos imports in
+  one step, and the bin is never duplicated.
+- **Snappier panel.** Faster repeated lookups of yt-dlp/ffmpeg and browser
+  detection, and a lighter startup.
+
+### Added
+- **Auto-paste.** Copy a video link, click into the panel, and it fills the box for
+  you (only when it's empty — it never overwrites what you've typed).
+- The clipboard read can no longer momentarily freeze the panel on Windows.
+
 ## 3.4.0 — 2026-06-17
 
 ### Changed

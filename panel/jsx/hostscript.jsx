@@ -37,12 +37,17 @@ function sg_findOrCreateBin(binName) {
     return bin;
 }
 
-function sg_importToBin(filePath, binName) {
+// filePaths is an array (the panel batches a post's media into one call); a bare
+// string is tolerated for safety. All files land in the bin in a single
+// importFiles call, so the project tree is searched once per item, not per file.
+function sg_importToBin(filePaths, binName) {
     try {
         if (!app.project) return "ERROR:No project open.";
         var bin = sg_findOrCreateBin(binName);
         if (!bin) return "ERROR:Could not create bin '" + binName + "'.";
-        var ok = app.project.importFiles([filePath], true, bin, false);
+        var paths = (filePaths instanceof Array) ? filePaths : [filePaths];
+        if (paths.length === 0) return "ERROR:No files to import.";
+        var ok = app.project.importFiles(paths, true, bin, false);
         return ok ? "OK" : "ERROR:Import returned false.";
     } catch (e) {
         return "ERROR:" + e.toString();

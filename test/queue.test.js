@@ -120,6 +120,37 @@ test('remove drops a non-active item; clearDone strips terminals', () => {
   assert.strictEqual(q.getItems().length, 0);
 });
 
+test('downloads start immediately without waiting for the title fetch', () => {
+  const finishers = [];
+  const q = createQueue(baseDeps({
+    fetchInfo: () => {},                 // title never resolves
+    downloadConcurrency: 2,
+    download: (opts, cbs, done) => { finishers.push(done); }
+  }));
+  q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
+  const items = q.getItems();
+  // Pre-decouple this was 0 (both stuck behind the metadata probe). Now both run.
+  assert.strictEqual(items.filter(i => i.status === 'downloading').length, 2);
+});
+
+test('a late title fills the row in place without disturbing the download', () => {
+  let resolveTitle = null;
+  const q = createQueue(baseDeps({
+    fetchInfo: (url, cb) => { resolveTitle = () => cb(null, { title: 'Late ' + url, durationSec: 12, thumbnail: 'https://t/x.jpg' }); },
+    downloadConcurrency: 1,
+    download: (opts, cbs, done) => { /* never finishes */ }
+  }));
+  q.addUrls([{ url: 'a', opts: {} }]);
+  let it = q.getItems()[0];
+  assert.strictEqual(it.status, 'downloading');   // already downloading
+  assert.strictEqual(it.title, null);             // title not here yet
+  resolveTitle();                                  // title arrives mid-download
+  it = q.getItems()[0];
+  assert.strictEqual(it.status, 'downloading');   // status untouched
+  assert.strictEqual(it.title, 'Late a');         // row gets its title
+  assert.strictEqual(it.durationSec, 12);
+});
+
 test('remove refuses an in-flight download (cancel first)', () => {
   const q = createQueue(baseDeps({ downloadConcurrency: 1, download: () => {} })); // never finishes
   q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);

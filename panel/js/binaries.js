@@ -52,18 +52,32 @@ function candidateNames(name, platform) {
   return /\.exe$/i.test(name) ? [name] : [name + '.exe', name];
 }
 
+// Session cache: resolveBinary is hit on every download and every metadata
+// probe, and each call otherwise rebuilds defaultDirs (PATH split + O(n^2)
+// dedupe over ~47 dirs) and stats candidates (accessSync + statSync). Keyed by
+// name+extRoot+platform. Bypassed whenever dirs/isExec are injected so unit
+// tests stay deterministic. Cleared on install/update/repair (paths change).
+var resolveCache = {};
+function clearBinaryCache() { resolveCache = {}; }
+
 function resolveBinary(name, opts) {
   opts = opts || {};
+  var cacheable = !opts.dirs && !opts.isExec;
+  var key = cacheable ? JSON.stringify([name, opts.extRoot || '', opts.platform || process.platform]) : null;
+  if (cacheable && resolveCache.hasOwnProperty(key)) return resolveCache[key];
+
   var dirs = opts.dirs || defaultDirs(opts.extRoot, opts.platform);
   var isExec = opts.isExec || defaultIsExec;
   var names = candidateNames(name, opts.platform);
-  for (var i = 0; i < dirs.length; i++) {
+  var found = null;
+  for (var i = 0; i < dirs.length && !found; i++) {
     for (var j = 0; j < names.length; j++) {
       var candidate = path.join(dirs[i], names[j]);
-      if (isExec(candidate)) return candidate;
+      if (isExec(candidate)) { found = candidate; break; }
     }
   }
-  return null;
+  if (cacheable) resolveCache[key] = found;
+  return found;
 }
 
 function augmentedEnv(baseEnv, platform) {
@@ -237,6 +251,7 @@ function installMissing(missing, onProgress, cb) {
   var installed = [], failed = [];
   (function next(idx) {
     if (idx >= plan.length) {
+      clearBinaryCache();   // freshly-installed paths must not be shadowed by a cached miss
       var err = failed.length ? new Error(setupLogic.failureMessage(failed)) : null;
       return cb(err, { installed: installed, failed: failed });
     }
@@ -264,6 +279,7 @@ function updateYtDlp(cb) {
     if (err) return cb(err);
     try {
       if (!isWin()) blessMacBinary(dest);
+      clearBinaryCache();   // a cached 'missing' must not outlive the fresh install
       cb(null, dest);
     } catch (e) { cb(e); }
   });
@@ -271,6 +287,7 @@ function updateYtDlp(cb) {
 
 module.exports = {
   resolveBinary: resolveBinary,
+  clearBinaryCache: clearBinaryCache,
   defaultDirs: defaultDirs,
   candidateNames: candidateNames,
   augmentedEnv: augmentedEnv,

@@ -2,11 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert');
 const Q = require('../panel/js/queueState.js');
 
-test('makeItem starts pending with defaults', () => {
+test('makeItem starts download-ready with the title fetch pending', () => {
   const it = Q.makeItem('id1', 'https://x/1', { quality: 'fhd' });
   assert.strictEqual(it.id, 'id1');
   assert.strictEqual(it.url, 'https://x/1');
-  assert.strictEqual(it.status, 'pending');
+  assert.strictEqual(it.status, 'queued');      // eligible for download immediately
+  assert.strictEqual(it.infoState, 'pending');  // title/thumbnail load in parallel
   assert.strictEqual(it.title, null);
   assert.strictEqual(it.progress, 0);
   assert.deepStrictEqual(it.opts, { quality: 'fhd' });
@@ -21,9 +22,9 @@ test('add appends without mutating the original list', () => {
 
 test('setStatus updates only the target item and merges fields', () => {
   let list = [Q.makeItem('1', 'u1', {}), Q.makeItem('2', 'u2', {})];
-  list = Q.setStatus(list, '2', 'queued', { title: 'Hello', durationSec: 100 });
-  assert.strictEqual(list[0].status, 'pending');
-  assert.strictEqual(list[1].status, 'queued');
+  list = Q.setStatus(list, '2', 'downloading', { title: 'Hello', durationSec: 100 });
+  assert.strictEqual(list[0].status, 'queued');        // untouched
+  assert.strictEqual(list[1].status, 'downloading');
   assert.strictEqual(list[1].title, 'Hello');
   assert.strictEqual(list[1].durationSec, 100);
 });
@@ -39,10 +40,12 @@ test('nextQueued returns the first queued item, anyDownloading detects active', 
   assert.strictEqual(Q.anyDownloading(list), true);
 });
 
-test('firstWithStatus finds by status or null', () => {
+test('firstWithStatus / firstWithInfoState find by their own state or null', () => {
   let list = [Q.makeItem('1', 'u1', {})];
-  assert.strictEqual(Q.firstWithStatus(list, 'pending').id, '1');
+  assert.strictEqual(Q.firstWithStatus(list, 'queued').id, '1');
   assert.strictEqual(Q.firstWithStatus(list, 'done'), null);
+  assert.strictEqual(Q.firstWithInfoState(list, 'pending').id, '1');
+  assert.strictEqual(Q.firstWithInfoState(list, 'done'), null);
 });
 
 test('remove deletes by id; clearDone strips terminal states', () => {

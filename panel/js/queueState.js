@@ -1,8 +1,14 @@
 // panel/js/queueState.js
+// Two orthogonal lifecycles per item:
+//   status:    download lifecycle — queued -> downloading -> done/error/canceled.
+//   infoState: title/thumbnail fetch — pending -> fetching -> done.
+// An item is download-ready the moment it's created ('queued'); its title loads
+// in parallel and fills the row via update() without touching `status`. This is
+// what lets a download start immediately instead of waiting on a metadata probe.
 function makeItem(id, url, opts) {
   return {
     id: id, url: url, title: null, durationSec: null,
-    status: 'pending', progress: 0, statusMsg: '',
+    status: 'queued', infoState: 'pending', progress: 0, statusMsg: '',
     opts: opts || {}, outputPath: null
   };
 }
@@ -24,6 +30,11 @@ function firstWithStatus(list, status) {
   return null;
 }
 
+function firstWithInfoState(list, infoState) {
+  for (var i = 0; i < list.length; i++) { if (list[i].infoState === infoState) return list[i]; }
+  return null;
+}
+
 function nextQueued(list) { return firstWithStatus(list, 'queued'); }
 function anyDownloading(list) { return !!firstWithStatus(list, 'downloading'); }
 function remove(list, id) { return list.filter(function (it) { return it.id !== id; }); }
@@ -35,6 +46,6 @@ function clearDone(list) {
 
 module.exports = {
   makeItem: makeItem, add: add, update: update, setStatus: setStatus,
-  firstWithStatus: firstWithStatus, nextQueued: nextQueued,
-  anyDownloading: anyDownloading, remove: remove, clearDone: clearDone
+  firstWithStatus: firstWithStatus, firstWithInfoState: firstWithInfoState,
+  nextQueued: nextQueued, anyDownloading: anyDownloading, remove: remove, clearDone: clearDone
 };

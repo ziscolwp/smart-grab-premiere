@@ -25,25 +25,29 @@ function createQueue(deps) {
     pumpDownloads();
   }
 
+  // Title/thumbnail fetch — runs in parallel with downloading, never gates it.
+  // Writes via update() (title/durationSec/thumbnail/uploader/infoState) so it
+  // never clobbers the item's live download `status` or progress message: a
+  // title can land while the row is already downloading or even done.
   function pumpTitles() {
     while (fetching < CONC) {
-      var pend = qs.firstWithStatus(items, 'pending');
+      var pend = qs.firstWithInfoState(items, 'pending');
       if (!pend) break;
-      items = qs.setStatus(items, pend.id, 'fetching-info'); notify();
+      items = qs.update(items, pend.id, { infoState: 'fetching' }); notify();
       fetching++;
       (function (id, url) {
         deps.fetchInfo(url, function (err, info) {
           fetching--;
-          if (err) { items = qs.setStatus(items, id, 'queued', { title: url, statusMsg: 'title unavailable' }); }
-          else {
-            items = qs.setStatus(items, id, 'queued', {
-              title: info.title, durationSec: info.durationSec,
+          if (err) {
+            items = qs.update(items, id, { infoState: 'done', title: url });
+          } else {
+            items = qs.update(items, id, {
+              infoState: 'done', title: info.title, durationSec: info.durationSec,
               thumbnail: info.thumbnail || null, uploader: info.uploader || null
             });
           }
           notify();
           pumpTitles();
-          pumpDownloads();
         });
       })(pend.id, pend.url);
     }
@@ -118,7 +122,7 @@ function createQueue(deps) {
     for (var k in procs) { if (procs.hasOwnProperty(k)) { try { procs[k].kill(); } catch (e) {} } }
     procs = {};
     items = items.map(function (it) {
-      var active = it.status === 'pending' || it.status === 'fetching-info' || it.status === 'queued' || it.status === 'downloading';
+      var active = it.status === 'queued' || it.status === 'downloading';
       return active ? Object.assign({}, it, { status: 'canceled', statusMsg: 'Canceled' }) : it;
     });
     notify();

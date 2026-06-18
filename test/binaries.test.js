@@ -74,3 +74,34 @@ test('ytDlpDownloadUrl picks the right release asset per platform', () => {
   assert.ok(B.ytDlpDownloadUrl('win32').indexOf('yt-dlp.exe') !== -1);
   assert.ok(B.ytDlpDownloadUrl('darwin').indexOf('yt-dlp_macos') !== -1);
 });
+
+test('resolveBinary memoizes per session; clearBinaryCache invalidates', { skip: process.platform === 'win32' }, () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sgbin-'));
+  const name = 'sg-fake-tool-xyz';
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, '#!/bin/sh\nexit 0\n');
+  fs.chmodSync(file, 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = dir + path.delimiter + (oldPath || '');
+  try {
+    // Non-injected call uses the real PATH + fs, so it caches the resolution.
+    assert.strictEqual(B.resolveBinary(name), file);
+    fs.rmSync(file);                          // remove from disk
+    assert.strictEqual(B.resolveBinary(name), file);   // cache hit — still returns it
+    B.clearBinaryCache();
+    assert.strictEqual(B.resolveBinary(name), null);   // re-resolved — now gone
+  } finally {
+    process.env.PATH = oldPath;
+    B.clearBinaryCache();
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) {}
+  }
+});
+
+test('injected dirs/isExec bypass the cache (different predicates, same name)', () => {
+  const hit = B.resolveBinary('ffmpeg', { dirs: ['/a'], isExec: () => true });
+  const miss = B.resolveBinary('ffmpeg', { dirs: ['/a'], isExec: () => false });
+  assert.strictEqual(hit, path.join('/a', 'ffmpeg'));
+  assert.strictEqual(miss, null);   // not served a stale cached path
+});

@@ -44,8 +44,16 @@ function resolveOutputDir(opts, cb) {
     cb(null, res + sep + s.binName);
   });
 }
-function importFile(path, cb) {
-  evalJSX('sg_importToBin(' + jsStr(path) + ', ' + jsStr(state.settings.binName) + ')', function (r) {
+// Import one or more files in a single host round-trip. paths is an array (the
+// queue batches a post's media together); a bare string is tolerated. The paths
+// are emitted as an ExtendScript array literal — jsStr escapes each one (incl.
+// Windows backslashes), so no JSON parser is needed on the ES3 host side.
+function importFile(paths, cb) {
+  var arr = Array.isArray(paths) ? paths : [paths];
+  var literal = '[';
+  for (var i = 0; i < arr.length; i++) literal += (i ? ',' : '') + jsStr(arr[i]);
+  literal += ']';
+  evalJSX('sg_importToBin(' + literal + ', ' + jsStr(state.settings.binName) + ')', function (r) {
     cb(r === 'OK' ? null : new Error(r || 'import failed'));
   });
 }

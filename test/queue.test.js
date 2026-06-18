@@ -89,28 +89,63 @@ test('cancel kills the active process and advances', () => {
   assert.strictEqual(items.filter(i => i.status === 'downloading').length, 1);
 });
 
-test('multi-file results (e.g. multi-video tweet) import every path', () => {
+test('multi-file results (e.g. multi-video tweet) import all paths in ONE batched call', () => {
+  let calls = 0;
   const imported = [];
   const q = createQueue(baseDeps({
-    importFile: (path, cb) => { imported.push(path); cb(null); },
+    importFile: (paths, cb) => { calls++; for (const p of paths) imported.push(p); cb(null); },
     download: (opts, cbs, done) => done(null, { path: '/out/a.mp4', paths: ['/out/a.mp4', '/out/b.mp4'], size: '2 videos · 3 MB' })
   }));
   q.addUrls([{ url: 'a', opts: {} }]);
+  assert.strictEqual(calls, 1);   // one host round-trip / one project-tree walk, not two
   assert.deepStrictEqual(imported, ['/out/a.mp4', '/out/b.mp4']);
   const it = q.getItems()[0];
   assert.strictEqual(it.status, 'done');
   assert.strictEqual(it.statusMsg, '2 videos · 3 MB');
 });
 
-test('multi-file import failure surfaces the first error but still finishes', () => {
-  let n = 0;
+test('a failed batched import surfaces the error but still finishes the item', () => {
+  let calls = 0;
   const q = createQueue(baseDeps({
-    importFile: (path, cb) => { n++; cb(n === 1 ? new Error('bin missing') : null); },
+    importFile: (paths, cb) => { calls++; cb(new Error('bin missing')); },
     download: (opts, cbs, done) => done(null, { path: '/a', paths: ['/a', '/b'], size: '' })
   }));
   q.addUrls([{ url: 'a', opts: {} }]);
-  assert.strictEqual(n, 2); // both imports attempted
+  assert.strictEqual(calls, 1);
   assert.ok(q.getItems()[0].statusMsg.indexOf('bin missing') !== -1);
+});
+
+test('a finished download frees its slot at file-on-disk; the next grab runs while it imports', () => {
+  let aImportCb = null;
+  const q = createQueue(baseDeps({
+    downloadConcurrency: 1,
+    importFile: (paths, cb) => { aImportCb = cb; },                 // import hangs
+    download: (opts, cbs, done) => { if (opts.url === 'a') done(null, { path: '/out/a.mp4', size: '1 MB' }); /* b hangs downloading */ }
+  }));
+  q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
+  const a = q.getItems().find(i => i.url === 'a');
+  const b = q.getItems().find(i => i.url === 'b');
+  assert.strictEqual(a.statusMsg, 'Importing…');      // a's file is on disk, importing
+  assert.strictEqual(b.status, 'downloading');         // b started — a's import didn't hold the slot
+  aImportCb(null);                                      // a's import finishes
+  assert.strictEqual(q.getItems().find(i => i.url === 'a').status, 'done');
+});
+
+test('canceling an item while it waits to import does not import or resurrect it', () => {
+  const importedUrls = [];
+  let firstImportCb = null;
+  const q = createQueue(baseDeps({
+    downloadConcurrency: 2,
+    importFile: (paths, cb) => { importedUrls.push(paths[0]); if (!firstImportCb) { firstImportCb = cb; } else { cb(null); } },
+    download: (opts, cbs, done) => done(null, { path: '/' + opts.url + '.mp4', size: '1 MB' })
+  }));
+  q.addUrls([{ url: 'a', opts: {} }, { url: 'b', opts: {} }]);
+  // a's import is in flight (hung); b is queued behind it. Cancel b before it imports.
+  const b = q.getItems().find(i => i.url === 'b');
+  q.cancel(b.id);
+  firstImportCb(null);   // a finishes; drain advances — must SKIP canceled b
+  assert.deepStrictEqual(importedUrls, ['/a.mp4']);   // b's file was never imported
+  assert.strictEqual(q.getItems().find(i => i.url === 'b').status, 'canceled');
 });
 
 test('remove drops a non-active item; clearDone strips terminals', () => {

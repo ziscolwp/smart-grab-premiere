@@ -11,7 +11,10 @@ function createQueue(deps) {
   // Downloads are network-bound (mostly waiting on the server), so running a
   // few at once near-linearly cuts wall-clock time for a multi-URL batch.
   var DL_CONC = deps.downloadConcurrency || 3;
-  var procs = {};   // id -> child process (kept out of item objects)
+  var procs = {};       // id -> child process (kept out of item objects)
+  var importing = {};   // id -> true while the file is on disk and being imported
+  var importJobs = [];  // FIFO of { id, res } awaiting a host import
+  var importBusy = false;
 
   function notify() { deps.onChange(items); }
   function setStatus(id, status, fields) { items = qs.setStatus(items, id, status, fields); notify(); }
@@ -53,9 +56,15 @@ function createQueue(deps) {
     }
   }
 
+  // A download slot is occupied only while bytes are actually transferring — an
+  // item whose file is already on disk and is now being imported (still shown as
+  // 'downloading' with an 'Importing…' message) has freed its bandwidth, so it
+  // no longer counts against the cap.
   function countDownloading() {
     var n = 0;
-    for (var i = 0; i < items.length; i++) if (items[i].status === 'downloading') n++;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].status === 'downloading' && !importing[items[i].id]) n++;
+    }
     return n;
   }
 
@@ -89,26 +98,53 @@ function createQueue(deps) {
           pumpDownloads();
           return;
         }
+        // The file is on disk. Hand the import to the FIFO, then free the download
+        // slot so the next grab starts immediately — the import (single-threaded,
+        // and slow when Premiere is busy) runs concurrently instead of stalling
+        // otherwise-idle download bandwidth.
+        importing[id] = true;
         update(id, { statusMsg: 'Importing…', progress: 100 });
-        // A single post can yield several media files (e.g. a tweet with
-        // multiple videos) — import every one of them.
-        var paths = res.paths || [res.path];
-        var pi = 0, firstImpErr = null;
-        (function importNext() {
-          if (pi >= paths.length) {
-            setStatus(id, 'done', {
-              outputPath: res.path,
-              statusMsg: firstImpErr ? ('Downloaded (import failed): ' + firstImpErr.message) : (res.size || 'Done')
-            });
-            pumpDownloads();
-            return;
-          }
-          deps.importFile(paths[pi++], function (impErr) {
-            if (impErr && !firstImpErr) firstImpErr = impErr;
-            importNext();
-          });
-        })();
+        enqueueImport(id, res);
+        pumpDownloads();
       });
+    });
+  }
+
+  // Imports are serialized through this FIFO: Premiere's host is single-threaded,
+  // so concurrent importFiles calls would race the find-or-create-bin logic and
+  // could spawn duplicate bins. Each item's media files (a post can yield several,
+  // e.g. a multi-video tweet) are handed over in a single importFile call.
+  function enqueueImport(id, res) {
+    importJobs.push({ id: id, res: res });
+    drainImports();
+  }
+  function itemById(id) {
+    for (var i = 0; i < items.length; i++) if (items[i].id === id) return items[i];
+    return null;
+  }
+  function drainImports() {
+    if (importBusy) return;
+    var job = importJobs.shift();
+    if (!job) return;
+    // The user may have canceled/removed this item while it waited in the queue —
+    // don't import a file they no longer want.
+    var pending = itemById(job.id);
+    if (!pending || pending.status === 'canceled') { delete importing[job.id]; return drainImports(); }
+    importBusy = true;
+    var paths = job.res.paths || [job.res.path];
+    deps.importFile(paths, function (impErr) {
+      importBusy = false;
+      delete importing[job.id];
+      var it = itemById(job.id);
+      if (it && it.status !== 'canceled') {
+        setStatus(job.id, 'done', {
+          outputPath: job.res.path,
+          statusMsg: impErr ? ('Downloaded (import failed): ' + impErr.message) : (job.res.size || 'Done')
+        });
+      } else {
+        notify();   // canceled/removed mid-import — clean up without resurrecting it
+      }
+      drainImports();
     });
   }
 

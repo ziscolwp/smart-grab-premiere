@@ -27,6 +27,24 @@ function createClipboard(deps) {
     return '';
   }
 
+  // Non-blocking read — the same commands as read() but via async execFile so a
+  // slow Windows PowerShell cold-start (200-700ms) can never freeze the panel
+  // (e.g. on focus auto-detect or the Paste button). cb(text) — '' on any error.
+  function readAsync(cb) {
+    cb = cb || function () {};
+    var cmd, args;
+    if (platform === 'darwin') { cmd = '/usr/bin/pbpaste'; args = []; }
+    else if (platform === 'win32') {
+      cmd = 'powershell.exe';
+      args = ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'];
+    } else { return cb(''); }
+    try {
+      childProcess.execFile(cmd, args, { encoding: 'utf8', windowsHide: true }, function (err, stdout) {
+        cb(err ? '' : String(stdout == null ? '' : stdout));
+      });
+    } catch (e) { cb(''); }
+  }
+
   function write(text) {
     var input = String(text == null ? '' : text);
     try {
@@ -47,8 +65,11 @@ function createClipboard(deps) {
     return false;
   }
 
-  return { read: read, write: write };
+  return { read: read, readAsync: readAsync, write: write };
 }
 
 var clipboard = createClipboard();
-module.exports = { read: clipboard.read, write: clipboard.write, createClipboard: createClipboard };
+module.exports = {
+  read: clipboard.read, readAsync: clipboard.readAsync, write: clipboard.write,
+  createClipboard: createClipboard
+};

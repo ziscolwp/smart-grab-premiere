@@ -70,19 +70,53 @@ var queue = queueMod.createQueue({
   titleConcurrency: 4
 });
 
-function renderQueue(items) {
-  $('queueCount').textContent = queueRender.summary(items);
-  queueRender.render(document, $('queueList'), items, {
-    cancel: function (id) { queue.cancel(id); },
-    remove: function (id) { queue.remove(id); },
-    retry: function (id) { queue.retry(id); },
-    reveal: function (id) {
-      var its = queue.getItems();
-      for (var i = 0; i < its.length; i++) {
-        if (its[i].id === id && its[i].outputPath) revealFile(its[i].outputPath);
-      }
+var queueHandlers = {
+  cancel: function (id) { queue.cancel(id); },
+  remove: function (id) { queue.remove(id); },
+  retry: function (id) { queue.retry(id); },
+  reveal: function (id) {
+    var its = queue.getItems();
+    for (var i = 0; i < its.length; i++) {
+      if (its[i].id === id && its[i].outputPath) revealFile(its[i].outputPath);
     }
-  });
+  }
+};
+
+// Keyed render: the DOM is rebuilt only on structural change (status flips,
+// add/remove/reorder). Progress ticks patch just the changed rows in place and
+// coalesce at ~12Hz, so parallel downloads no longer thrash the queue list
+// (full innerHTML reset + <img> reload + listener re-bind) many times/second.
+var lastRendered = [];
+var pendingItems = null;
+var flushTimer = null;
+
+function applyRender(items) {
+  $('queueCount').textContent = queueRender.summary(items);
+  var change = queueRender.classifyChange(lastRendered, items);
+  var list = $('queueList');
+  if (change.structural || !lastRendered.length) {
+    queueRender.render(document, list, items, queueHandlers);
+  } else {
+    for (var i = 0; i < change.updates.length; i++) queueRender.patchRow(list, change.updates[i]);
+  }
+  lastRendered = items;
+}
+
+function flushRender() {
+  flushTimer = null;
+  if (pendingItems) { var p = pendingItems; pendingItems = null; applyRender(p); }
+}
+
+function renderQueue(items) {
+  var change = queueRender.classifyChange(lastRendered, items);
+  if (change.structural || !lastRendered.length) {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+    pendingItems = null;
+    applyRender(items);                 // status changes render immediately
+  } else {
+    pendingItems = items;               // progress-only ticks coalesce
+    if (!flushTimer) flushTimer = setTimeout(flushRender, 80);
+  }
 }
 
 // ---------- Setup health banner (self-healing — see setupBanner.js) ----------
@@ -136,7 +170,34 @@ function updateUrlMeta() {
   meta.innerHTML = html;
   updateClipAvailability(list);
 }
-$('url').addEventListener('input', updateUrlMeta);
+// Debounce the live meta line while typing/pasting a long list — recomputing
+// urls.parse + rewriting #urlMeta on every keystroke is wasteful on the old CEF.
+// Direct callers (paste, prefill, add, settings) still run updateUrlMeta now.
+var urlMetaTimer = null;
+function scheduleUrlMeta() {
+  if (urlMetaTimer) clearTimeout(urlMetaTimer);
+  urlMetaTimer = setTimeout(function () { urlMetaTimer = null; updateUrlMeta(); }, 100);
+}
+$('url').addEventListener('input', scheduleUrlMeta);
+
+// When the panel regains focus and the URL box is empty, offer a freshly-copied
+// video link — one less paste. Never clobbers typed text; never re-offers the
+// same clipboard value (so deleting it doesn't immediately refill).
+var lastClipboardOffered = null;
+function urlBoxEmpty() { return $('url').value.replace(/^\s+|\s+$/g, '') === ''; }
+function autoDetectClipboardUrl() {
+  if (!urlBoxEmpty()) return;
+  clipboard.readAsync(function (t) {
+    var text = (t || '').replace(/^\s+|\s+$/g, '');
+    if (!text || text === lastClipboardOffered) return;
+    if (!urls.parse(text).length) return;     // only when it holds a real video link
+    if (!urlBoxEmpty()) return;               // re-check after the async hop
+    lastClipboardOffered = text;
+    $('url').value = text;
+    updateUrlMeta();
+  });
+}
+window.addEventListener('focus', autoDetectClipboardUrl);
 
 // ---------- Clip section ----------
 function updateClipAvailability(list) {
@@ -187,8 +248,9 @@ $('endTime').addEventListener('change', manualTimesChanged);
 
 // ---------- Paste button + keyboard shortcuts ----------
 $('pasteBtn').addEventListener('click', function () {
-  var t = clipboard.read();
-  if (t) { $('url').value = t.replace(/^\s+|\s+$/g, ''); updateUrlMeta(); }
+  clipboard.readAsync(function (t) {
+    if (t) { $('url').value = t.replace(/^\s+|\s+$/g, ''); updateUrlMeta(); }
+  });
 });
 document.addEventListener('keydown', function (e) {
   var action = editKeys.editAction(e);
@@ -202,12 +264,18 @@ document.addEventListener('keydown', function (e) {
   if (el.readOnly) return;
   if (action === 'paste') {
     e.preventDefault();
-    var raw = clipboard.read();
-    var clipText = el.tagName === 'INPUT' ? raw.replace(/[\r\n]+/g, '') : raw; // keep newlines in the URL textarea
-    if (clipText) {
-      var r = editKeys.applyPaste(el.value, start, end, clipText);
-      el.value = r.value; el.setSelectionRange(r.caret, r.caret);
-    }
+    // Async read so a slow Windows PowerShell clipboard call can't freeze typing.
+    // Capture the element + selection now; apply when the text arrives.
+    var pasteEl = el, ps = start, pe = end, isInput = el.tagName === 'INPUT', isUrl = el.id === 'url';
+    clipboard.readAsync(function (raw) {
+      var clipText = isInput ? raw.replace(/[\r\n]+/g, '') : raw; // keep newlines in the URL textarea
+      if (clipText) {
+        var r = editKeys.applyPaste(pasteEl.value, ps, pe, clipText);
+        pasteEl.value = r.value; pasteEl.setSelectionRange(r.caret, r.caret);
+      }
+      if (isUrl) updateUrlMeta();
+    });
+    return;   // the async path runs its own updateUrlMeta
   } else if (action === 'cut') {
     e.preventDefault();
     var c = editKeys.applyCut(el.value, start, end);

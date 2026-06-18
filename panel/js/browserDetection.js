@@ -181,7 +181,15 @@ function safeExists(existsSync, candidate) {
   }
 }
 
+// The no-arg production call stats ~30 browser paths; browsers don't appear or
+// vanish mid-session, so memoize it (Settings can be opened repeatedly). Any
+// injected opts (tests) bypass the cache so they stay deterministic.
+var detectCache = null;
+function clearBrowserCache() { detectCache = null; }
+
 function detectInstalledBrowsers(opts) {
+  var memoizable = !opts;
+  if (memoizable && detectCache) return detectCache;
   opts = opts || {};
   var ctx = {
     platform: opts.platform || process.platform,
@@ -202,6 +210,7 @@ function detectInstalledBrowsers(opts) {
       }
     }
   }
+  if (memoizable) detectCache = detected;
   return detected;
 }
 
@@ -236,6 +245,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     SUPPORTED_BROWSERS: SUPPORTED_BROWSERS,
     detectInstalledBrowsers: detectInstalledBrowsers,
+    clearBrowserCache: clearBrowserCache,
     browserOptionsHtml: browserOptionsHtml
   };
 }

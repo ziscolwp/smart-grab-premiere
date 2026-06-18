@@ -14,6 +14,7 @@ function createSettingsView(deps) {
   var binaries = deps.binaries;
   var browserDetector = deps.browserDetection || browserDetection;
   var detectedBrowsers = [];
+  var versionShown = false;
 
   function panelVersion() {
     try {
@@ -58,6 +59,11 @@ function createSettingsView(deps) {
     $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
     $('updateStatus').textContent = '';
     $('cookiesFileStatus').textContent = '';
+    if (!versionShown) {
+      var v = panelVersion();   // deferred off startup — only read when Settings opens
+      $('panelVersion').textContent = 'Smart Grab' + (v ? ' v' + v : '');
+      versionShown = true;
+    }
     $('mainView').classList.add('hidden'); $('settingsView').classList.remove('hidden');
   }
 
@@ -70,8 +76,6 @@ function createSettingsView(deps) {
     settingsMod.save(state.settings);
   }
 
-  var v = panelVersion();
-  $('panelVersion').textContent = 'Smart Grab' + (v ? ' v' + v : '');
   $('reportIssueLink').addEventListener('click', function (e) {
     e.preventDefault();
     deps.cs.openURLInDefaultBrowser('https://github.com/ziscolwp/smart-grab-premiere/issues');

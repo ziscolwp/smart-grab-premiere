@@ -57,3 +57,22 @@ test('browser select options show a disabled empty state when none are detected'
   assert.match(html, /No supported browsers found/);
   assert.match(html, /disabled/);
 });
+
+test('the no-arg production call is memoized for the session; clearBrowserCache resets it', () => {
+  const a = browserDetection.detectInstalledBrowsers();
+  const b = browserDetection.detectInstalledBrowsers();
+  assert.strictEqual(a, b);                 // same cached reference — not re-stated
+  browserDetection.clearBrowserCache();
+  const c = browserDetection.detectInstalledBrowsers();
+  assert.notStrictEqual(a, c);              // recomputed after clear
+});
+
+test('injected opts bypass the memo (tests stay deterministic)', () => {
+  browserDetection.detectInstalledBrowsers();   // warm the no-arg cache
+  const detected = browserDetection.detectInstalledBrowsers({
+    platform: 'darwin', homeDir: '/Users/x', env: {},
+    existsSync: (p) => p === '/Applications/Google Chrome.app'
+  });
+  assert.deepStrictEqual(detected.map((b) => b.value), ['chrome']);   // not served the cached no-arg result
+  browserDetection.clearBrowserCache();
+});

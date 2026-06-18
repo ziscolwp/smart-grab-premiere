@@ -50,3 +50,50 @@ test('clipboard helpers fail quietly when the platform command errors', () => {
   assert.strictEqual(c.read(), '');
   assert.strictEqual(c.write('hello'), false);
 });
+
+test('readAsync runs the platform command without blocking and returns its text', () => {
+  const calls = [];
+  const c = clipboard.createClipboard({
+    platform: 'win32',
+    childProcess: {
+      execFile: (cmd, args, opts, cb) => {
+        calls.push({ cmd, args, opts });
+        cb(null, 'https://example.com/clip', '');
+      }
+    }
+  });
+  let got = null;
+  c.readAsync((text) => { got = text; });
+  assert.strictEqual(got, 'https://example.com/clip');
+  assert.strictEqual(calls[0].cmd, 'powershell.exe');
+  assert.ok(calls[0].args.indexOf('Get-Clipboard -Raw') !== -1);
+});
+
+test('readAsync uses pbpaste on macOS', () => {
+  const calls = [];
+  const c = clipboard.createClipboard({
+    platform: 'darwin',
+    childProcess: { execFile: (cmd, args, opts, cb) => { calls.push(cmd); cb(null, 'mac-text', ''); } }
+  });
+  let got = null;
+  c.readAsync((text) => { got = text; });
+  assert.strictEqual(got, 'mac-text');
+  assert.strictEqual(calls[0], '/usr/bin/pbpaste');
+});
+
+test('readAsync yields empty string on error instead of throwing', () => {
+  const c = clipboard.createClipboard({
+    platform: 'win32',
+    childProcess: { execFile: (cmd, args, opts, cb) => cb(new Error('no clipboard'), '', '') }
+  });
+  let got = 'unset';
+  c.readAsync((text) => { got = text; });
+  assert.strictEqual(got, '');
+});
+
+test('readAsync on an unsupported platform yields empty string', () => {
+  const c = clipboard.createClipboard({ platform: 'linux', childProcess: {} });
+  let got = 'unset';
+  c.readAsync((text) => { got = text; });
+  assert.strictEqual(got, '');
+});

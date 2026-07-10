@@ -118,6 +118,16 @@ editor/project URL in your address bar has no downloadable video in it), and
 the clip stays grabbable only while it's shared — if you unshare or delete it
 in Flow, the link stops working.
 
+**Does it remove the Veo sparkle watermark?**
+Yes — automatically. Flow bakes a semi-transparent sparkle into the
+bottom-right corner even on paid plans; Smart Grab reverses that blend
+mathematically (exact pixel reconstruction, not blurring) before importing, so
+the clip that lands in your bin is clean. Audio is untouched and the file stays
+its normal size. Toggle it in Settings ▸ **Remove Flow watermark**; if removal
+ever fails (say Google changes the watermark) the original still imports with a
+⚠ note so your edit is never blocked. Watermark alpha maps come from
+[gemini-watermark-remover](https://github.com/GargantuaX/gemini-watermark-remover) (MIT).
+
 **What can't be grabbed?**
 Sites that hide the video behind their own JavaScript player or a
 one-time token (many movie/streaming aggregators) serve a page with no

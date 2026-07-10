@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.6.0 — 2026-07-10
+
+### Added
+- **Google Flow watermark removal.** Flow (Veo) clips now lose their baked-in
+  sparkle watermark automatically before import — exact mathematical
+  reconstruction of the original pixels (reverse alpha blending), not blurring.
+  Audio is copied untouched and file size stays normal. Position and strength
+  are auto-calibrated per clip, with a residual-smoothing pass for flat
+  backgrounds. On by default; toggle in Settings ▸ "Remove Flow watermark".
+  If removal ever fails, the original imports with a ⚠ note — footage is never
+  blocked. Alpha maps vendored from
+  [gemini-watermark-remover](https://github.com/GargantuaX/gemini-watermark-remover) (MIT).
+
 ## 3.5.0 — 2026-06-18
 
 ### Changed

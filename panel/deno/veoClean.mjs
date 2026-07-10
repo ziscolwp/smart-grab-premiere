@@ -89,26 +89,59 @@ function removeWith(ops, frame) {
   }
 }
 
-// ---- flat-background residual smoothing -----------------------------------
-// Reverse alpha inverts the blend exactly, but the vendored map's soft edges
-// differ subtly from Veo's, leaving a faint sparkle ghost. On busy content
-// it's invisible; on flat backgrounds it shows. There a local average IS the
-// ground truth, so blend watermark pixels toward the mean of nearby clean
-// pixels — gated per frame on measured flatness (GWR's "flat fill" idea).
-const SMOOTH_MASK_ALPHA = 0.03;   // template magnitude that marks a ghost pixel
-const SMOOTH_FLAT_STD = 6;        // luma stddev of clean pixels that counts as flat
+// ---- residual cleanup: adaptive gain + graduated smoothing ----------------
+// Reverse alpha inverts the blend exactly at the right strength — but Veo's
+// sparkle strength drifts per frame (measured 0.45..0.66 within one clip), and
+// the vendored map's soft edges differ subtly from Veo's. Both leave a faint
+// ghost that shows on smooth backgrounds and vanishes on busy ones.
+//
+// One signal drives the cleanup: TEXTURE ENERGY — the stddev of the
+// highpassed luma over non-watermark pixels. Unlike a global stddev it is
+// gradient-immune (a sunset sky reads as smooth). Where texture is low the
+// per-frame gain estimator is trustworthy (no noise floor) AND the ghost is
+// visible, so both correctors engage there and stand down on busy content.
+const SMOOTH_MASK_ALPHA = 0.015;  // template magnitude that marks a ghost pixel (incl. faint outer glow)
+const EST_CORE_ALPHA = 0.05;      // template magnitude used by the gain estimator
+const GAIN_CONF_LO = 2, GAIN_CONF_HI = 6;      // texture range: estimator on -> off
+const SMOOTH_LO = 4, SMOOTH_HI = 12;           // texture range: smoothing full -> off
+const GAIN_CLAMP = 0.08;          // max per-frame gain correction vs the base
+const GAIN_EMA = 0.3;             // temporal smoothing of the adapted gain
+
+function ramp(v, lo, hi) {        // 1 at/below lo, 0 at/above hi
+  return v <= lo ? 1 : v >= hi ? 0 : (hi - v) / (hi - lo);
+}
 
 function buildSmooth(tpl, x, y, size) {
-  const masked = [];    // { idx, w, neighbors: [frameIdx, ...] }
-  const clean = [];     // frame indexes of unmasked pixels (flatness sample + donors)
+  const masked = [];    // { idx, p, w, neighbors: [frameIdx, ...] }
+  const clean = [];     // frame indexes of unmasked pixels (texture sample + donors)
   const isMasked = new Uint8Array(size * size);
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       const mag = Math.abs(tpl[r * size + c]);
       if (mag > SMOOTH_MASK_ALPHA) isMasked[r * size + c] = 1;
-      else clean.push(((y + r) * W + (x + c)) * 4);
     }
   }
+  // Dilate the mask 2px: Veo's real sparkle edge sits a hair outside the
+  // vendored template's support (sub-pixel shape mismatch), so the ghost's
+  // outline lives on pixels the raw mask misses.
+  const dilated = new Uint8Array(isMasked);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (dilated[r * size + c]) continue;
+      outer:
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+          if (isMasked[rr * size + cc]) { dilated[r * size + c] = 2; break outer; }
+        }
+      }
+    }
+  }
+  for (let p = 0; p < size * size; p++) {
+    if (!dilated[p]) clean.push(((y + (p / size | 0)) * W + (x + (p % size))) * 4);
+  }
+  isMasked.set(dilated);
   for (let r = 0; r < size; r++) {
     for (let c = 0; c < size; c++) {
       if (!isMasked[r * size + c]) continue;
@@ -129,30 +162,103 @@ function buildSmooth(tpl, x, y, size) {
       const mag = Math.abs(tpl[r * size + c]);
       masked.push({
         idx: ((y + r) * W + (x + c)) * 4,
+        p: r * size + c,
         w: Math.min(1, mag * 3),
         neighbors
       });
     }
   }
-  return { masked, clean };
+  return { masked, clean, tpl, x, y, size, maskFlags: isMasked };
 }
 
-function smoothResidual(sm, frame) {
-  if (!sm.masked.length || sm.clean.length < 16) return;
-  // flatness gate: are the untouched pixels around the sparkle flat?
-  let mean = 0;
-  for (const i of sm.clean) mean += 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
-  mean /= sm.clean.length;
-  let varsum = 0;
-  for (const i of sm.clean) {
-    const l = 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
-    varsum += (l - mean) * (l - mean);
+function regionLuma(sm, frame) {
+  const size = sm.size, out = new Float32Array(size * size);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const i = ((sm.y + r) * W + (sm.x + c)) * 4;
+      out[r * size + c] = 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
+    }
   }
-  if (Math.sqrt(varsum / sm.clean.length) >= SMOOTH_FLAT_STD) return;
+  return out;
+}
+
+function boxblurRegion(region, size) {
+  const radius = Math.max(2, size >> 3);
+  const tmp = new Float32Array(size * size), out = new Float32Array(size * size);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      let sum = 0, n = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const cc = c + k;
+        if (cc >= 0 && cc < size) { sum += region[r * size + cc]; n++; }
+      }
+      tmp[r * size + c] = sum / n;
+    }
+  }
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      let sum = 0, n = 0;
+      for (let k = -radius; k <= radius; k++) {
+        const rr = r + k;
+        if (rr >= 0 && rr < size) { sum += tmp[rr * size + c]; n++; }
+      }
+      out[r * size + c] = sum / n;
+    }
+  }
+  return out;
+}
+
+// Luma-domain trial removal (estimation only — full frames use removeWith).
+function removeLumaAt(sm, L, gain) {
+  const size = sm.size, out = new Float32Array(L);
+  for (let p = 0; p < size * size; p++) {
+    const mag = Math.abs(sm.tpl[p]);
+    if (Math.max(0, mag - ALPHA_NOISE_FLOOR) * gain < ALPHA_THRESHOLD) continue;
+    const a = Math.min(mag * gain, MAX_ALPHA);
+    const logo = sm.tpl[p] < 0 ? 0 : LOGO_VALUE;
+    out[p] = (L[p] - a * logo) / (1 - a);
+  }
+  return out;
+}
+
+// Analyze one frame: texture energy of the surround, and the least-squares
+// gain delta the sparkle-shaped residual implies after trial removal.
+function analyzeFrame(sm, frame, gain) {
+  const size = sm.size;
+  const L = regionLuma(sm, frame);
+  const trial = removeLumaAt(sm, L, gain);
+  const bg = boxblurRegion(trial, size);
+  // texture energy from non-watermark pixels (they carry no residual)
+  let tsum = 0, tsq = 0, tn = 0;
+  for (let p = 0; p < size * size; p++) {
+    if (sm.maskFlags[p]) continue;
+    const hp = trial[p] - bg[p];
+    tsum += hp; tsq += hp * hp; tn++;
+  }
+  const texture = tn > 8 ? Math.sqrt(Math.max(0, tsq / tn - (tsum / tn) * (tsum / tn))) : 99;
+  // residual gain delta over watermark core pixels
+  let num = 0, den = 0;
+  for (let p = 0; p < size * size; p++) {
+    const t = Math.abs(sm.tpl[p]);
+    if (t < EST_CORE_ALPHA) continue;
+    const w = t * (255 - bg[p]);
+    num += (trial[p] - bg[p]) * w;
+    den += w * w;
+  }
+  return { texture, delta: den > 0 ? num / den : 0 };
+}
+
+function smoothResidual(sm, frame, fullness) {
+  if (fullness <= 0 || !sm.masked.length || sm.clean.length < 16) return;
   for (const px of sm.masked) {
     let r = 0, g = 0, b = 0;
     for (const ni of px.neighbors) { r += frame[ni]; g += frame[ni + 1]; b += frame[ni + 2]; }
-    const n = px.neighbors.length, w = px.w, ow = 1 - w;
+    // The flatter the surround, the harder every masked pixel leans on its
+    // donors — at full flatness even faint edge pixels are fully replaced
+    // (a flat background's local average IS the ground truth), which kills
+    // the sparkle-outline ghost that per-alpha weights used to leave.
+    const n = px.neighbors.length;
+    const w = Math.min(1, px.w + fullness * fullness) * fullness, ow = 1 - w;
     frame[px.idx] = Math.round(frame[px.idx] * ow + (r / n) * w);
     frame[px.idx + 1] = Math.round(frame[px.idx + 1] * ow + (g / n) * w);
     frame[px.idx + 2] = Math.round(frame[px.idx + 2] * ow + (b / n) * w);
@@ -285,8 +391,17 @@ function fail(reason, extra) {
 
 async function filter() {
   const tpl = templateFor(+args.size);
-  const ops = buildOps(tpl, +args.x, +args.y, +args.size, +args.gain);
+  const baseGain = +args.gain;
   const sm = buildSmooth(tpl, +args.x, +args.y, +args.size);
+  // ops rebuilt per adapted gain, cached on 0.005 steps
+  const opsCache = new Map();
+  function opsFor(gain) {
+    const key = Math.round(gain * 200);
+    let ops = opsCache.get(key);
+    if (!ops) { ops = buildOps(tpl, +args.x, +args.y, +args.size, key / 200); opsCache.set(key, ops); }
+    return ops;
+  }
+  let gainEma = baseGain;
   const frameBytes = W * H * 4;
   const frame = new Uint8Array(frameBytes);
   let filled = 0;
@@ -298,8 +413,22 @@ async function filter() {
       frame.set(chunk.subarray(off, off + n), filled);
       filled += n; off += n;
       if (filled === frameBytes) {
-        removeWith(ops, frame);
-        smoothResidual(sm, frame);
+        // Adapt the gain to THIS frame where the surround is smooth enough
+        // for the estimate to be trustworthy; hold the base gain elsewhere.
+        const an = analyzeFrame(sm, frame, gainEma);
+        const conf = ramp(an.texture, GAIN_CONF_LO, GAIN_CONF_HI);
+        const target = Math.max(baseGain - GAIN_CLAMP,
+          Math.min(baseGain + GAIN_CLAMP, gainEma + conf * an.delta));
+        gainEma += GAIN_EMA * (target - gainEma);
+        const fullness = ramp(an.texture, SMOOTH_LO, SMOOTH_HI);
+        if (args.debug) {
+          console.error(JSON.stringify({
+            texture: +an.texture.toFixed(2), delta: +an.delta.toFixed(4),
+            gain: +gainEma.toFixed(4), fullness: +fullness.toFixed(2)
+          }));
+        }
+        removeWith(opsFor(gainEma), frame);
+        smoothResidual(sm, frame, fullness);
         await writer.write(frame.slice());
         filled = 0;
       }

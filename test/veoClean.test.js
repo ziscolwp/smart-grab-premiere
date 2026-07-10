@@ -137,6 +137,59 @@ test('veoClean filter: flat background + gain mismatch still comes out clean (re
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('veoClean filter: per-frame varying watermark strength comes out clean (adaptive gain)', { skip: !hasDeno && 'bundled deno not installed' }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'veoclean-'));
+  // smooth gradient background — gradient-immune texture gate must engage here
+  const bg = Buffer.alloc(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    const x = i % W, y = (i / W) | 0;
+    bg[i * 4] = 120 + ((x / W) * 100) | 0;
+    bg[i * 4 + 1] = 100 + ((y / H) * 80) | 0;
+    bg[i * 4 + 2] = 140;
+    bg[i * 4 + 3] = 255;
+  }
+  const bgFile = path.join(tmp, 'bg.raw');
+  fs.writeFileSync(bgFile, bg);
+  // 6 frames stamped at gains drifting 0.48 -> 0.68 (Veo-style pulse), removed at base 0.58
+  const gains = [0.48, 0.52, 0.58, 0.62, 0.66, 0.68];
+  const wmFrames = [];
+  for (const g of gains) {
+    const out = path.join(tmp, `wm-${g}.raw`);
+    const st = runDeno(['run', '--quiet', '--allow-read', '--allow-write', SCRIPT,
+      `--mode=stamp`, `--width=${W}`, `--height=${H}`,
+      `--x=${X}`, `--y=${Y}`, `--size=${SIZE}`, `--gain=${g}`,
+      `--frame=${bgFile}`, `--out=${out}`]);
+    assert.strictEqual(st.status, 0, String(st.stderr));
+    wmFrames.push(fs.readFileSync(out));
+  }
+  const stream = Buffer.concat(wmFrames);
+  const cleaned = await new Promise((resolve, reject) => {
+    const p = spawn(DENO, ['run', '--quiet', SCRIPT,
+      `--mode=filter`, `--width=${W}`, `--height=${H}`,
+      `--x=${X}`, `--y=${Y}`, `--size=${SIZE}`, `--gain=0.58`]);
+    const chunks = [];
+    p.stdout.on('data', c => chunks.push(c));
+    p.on('error', reject);
+    p.on('close', code => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error('filter exit ' + code)));
+    p.stdin.write(stream);
+    p.stdin.end();
+  });
+  assert.strictEqual(cleaned.length, stream.length);
+  for (let f = 0; f < gains.length; f++) {
+    let maxDiff = 0;
+    const offset = f * W * H * 4;
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const i = offset + ((Y + r) * W + (X + c)) * 4;
+        const j = ((Y + r) * W + (X + c)) * 4;
+        for (let ch = 0; ch < 3; ch++) maxDiff = Math.max(maxDiff, Math.abs(cleaned[i + ch] - bg[j + ch]));
+      }
+    }
+    assert.ok(maxDiff <= 3, `frame ${f} (stamped gain ${gains[f]}): ghost must be gone (maxDiff ${maxDiff})`);
+  }
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test('veoClean calibrate: refuses a frame with no watermark', { skip: !hasDeno && 'bundled deno not installed' }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'veoclean-'));
   const bgFile = path.join(tmp, 'bg.raw');

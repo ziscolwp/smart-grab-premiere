@@ -7,8 +7,9 @@
   sparkle watermark automatically before import — exact mathematical
   reconstruction of the original pixels (reverse alpha blending), not blurring.
   Audio is copied untouched and file size stays normal. Position and strength
-  are auto-calibrated per clip, with a residual-smoothing pass for flat
-  backgrounds. On by default; toggle in Settings ▸ "Remove Flow watermark".
+  are auto-calibrated per clip — and re-tracked every frame, since Veo's
+  sparkle strength drifts mid-clip — with texture-adaptive residual smoothing
+  that fully cleans flat and gradient backgrounds. On by default; toggle in Settings ▸ "Remove Flow watermark".
   If removal ever fails, the original imports with a ⚠ note — footage is never
   blocked. Alpha maps vendored from
   [gemini-watermark-remover](https://github.com/GargantuaX/gemini-watermark-remover) (MIT).

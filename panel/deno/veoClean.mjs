@@ -20,7 +20,10 @@ const ALPHA_THRESHOLD = 0.002;
 const MAX_ALPHA = 0.99;
 const LOGO_VALUE = 255;
 const GAIN_LADDER = [0.45, 0.55, 0.6, 0.7, 0.85, 1.0, 1.15, 1.3];
-const MIN_PRESENCE = 0.25;   // template must correlate with the probe this well
+// Thresholds measured on a real Veo 720p clip over a busy background:
+// watermarked probe scored presence 0.25, an already-clean probe 0.006.
+// 0.15 sits well inside that 40x separation on the strict side of both.
+const MIN_PRESENCE = 0.15;   // template must correlate with the probe this well
 const MAX_RESIDUAL = 0.15;   // ...and removal must push residual below this
 
 const args = {};
@@ -83,6 +86,76 @@ function removeWith(ops, frame) {
       const v = Math.round((frame[op.idx + ch] - al) / oma);
       frame[op.idx + ch] = v < 0 ? 0 : v > 255 ? 255 : v;
     }
+  }
+}
+
+// ---- flat-background residual smoothing -----------------------------------
+// Reverse alpha inverts the blend exactly, but the vendored map's soft edges
+// differ subtly from Veo's, leaving a faint sparkle ghost. On busy content
+// it's invisible; on flat backgrounds it shows. There a local average IS the
+// ground truth, so blend watermark pixels toward the mean of nearby clean
+// pixels — gated per frame on measured flatness (GWR's "flat fill" idea).
+const SMOOTH_MASK_ALPHA = 0.03;   // template magnitude that marks a ghost pixel
+const SMOOTH_FLAT_STD = 6;        // luma stddev of clean pixels that counts as flat
+
+function buildSmooth(tpl, x, y, size) {
+  const masked = [];    // { idx, w, neighbors: [frameIdx, ...] }
+  const clean = [];     // frame indexes of unmasked pixels (flatness sample + donors)
+  const isMasked = new Uint8Array(size * size);
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      const mag = Math.abs(tpl[r * size + c]);
+      if (mag > SMOOTH_MASK_ALPHA) isMasked[r * size + c] = 1;
+      else clean.push(((y + r) * W + (x + c)) * 4);
+    }
+  }
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (!isMasked[r * size + c]) continue;
+      const neighbors = [];
+      // grow the donor ring until enough clean pixels are in reach
+      for (let rad = 3; rad <= size && neighbors.length < 6; rad += 2) {
+        neighbors.length = 0;
+        for (let dr = -rad; dr <= rad; dr++) {
+          for (let dc = -rad; dc <= rad; dc++) {
+            const rr = r + dr, cc = c + dc;
+            if (rr < 0 || rr >= size || cc < 0 || cc >= size) continue;
+            if (isMasked[rr * size + cc]) continue;
+            neighbors.push(((y + rr) * W + (x + cc)) * 4);
+          }
+        }
+      }
+      if (!neighbors.length) continue;
+      const mag = Math.abs(tpl[r * size + c]);
+      masked.push({
+        idx: ((y + r) * W + (x + c)) * 4,
+        w: Math.min(1, mag * 3),
+        neighbors
+      });
+    }
+  }
+  return { masked, clean };
+}
+
+function smoothResidual(sm, frame) {
+  if (!sm.masked.length || sm.clean.length < 16) return;
+  // flatness gate: are the untouched pixels around the sparkle flat?
+  let mean = 0;
+  for (const i of sm.clean) mean += 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
+  mean /= sm.clean.length;
+  let varsum = 0;
+  for (const i of sm.clean) {
+    const l = 0.299 * frame[i] + 0.587 * frame[i + 1] + 0.114 * frame[i + 2];
+    varsum += (l - mean) * (l - mean);
+  }
+  if (Math.sqrt(varsum / sm.clean.length) >= SMOOTH_FLAT_STD) return;
+  for (const px of sm.masked) {
+    let r = 0, g = 0, b = 0;
+    for (const ni of px.neighbors) { r += frame[ni]; g += frame[ni + 1]; b += frame[ni + 2]; }
+    const n = px.neighbors.length, w = px.w, ow = 1 - w;
+    frame[px.idx] = Math.round(frame[px.idx] * ow + (r / n) * w);
+    frame[px.idx + 1] = Math.round(frame[px.idx + 1] * ow + (g / n) * w);
+    frame[px.idx + 2] = Math.round(frame[px.idx + 2] * ow + (b / n) * w);
   }
 }
 
@@ -211,7 +284,9 @@ function fail(reason, extra) {
 // ---- streaming filter -----------------------------------------------------
 
 async function filter() {
-  const ops = buildOps(templateFor(+args.size), +args.x, +args.y, +args.size, +args.gain);
+  const tpl = templateFor(+args.size);
+  const ops = buildOps(tpl, +args.x, +args.y, +args.size, +args.gain);
+  const sm = buildSmooth(tpl, +args.x, +args.y, +args.size);
   const frameBytes = W * H * 4;
   const frame = new Uint8Array(frameBytes);
   let filled = 0;
@@ -224,6 +299,7 @@ async function filter() {
       filled += n; off += n;
       if (filled === frameBytes) {
         removeWith(ops, frame);
+        smoothResidual(sm, frame);
         await writer.write(frame.slice());
         filled = 0;
       }

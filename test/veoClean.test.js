@@ -100,6 +100,43 @@ test('veoClean stamp -> calibrate -> filter round-trip', { skip: !hasDeno && 'bu
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
+test('veoClean filter: flat background + gain mismatch still comes out clean (residual smoothing)', { skip: !hasDeno && 'bundled deno not installed' }, async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'veoclean-'));
+  // flat cream background — the worst case for ghost visibility
+  const bg = Buffer.alloc(W * H * 4);
+  for (let i = 0; i < W * H; i++) { bg[i * 4] = 235; bg[i * 4 + 1] = 225; bg[i * 4 + 2] = 205; bg[i * 4 + 3] = 255; }
+  const bgFile = path.join(tmp, 'bg.raw');
+  const wmFile = path.join(tmp, 'wm.raw');
+  fs.writeFileSync(bgFile, bg);
+  // stamp at 0.6 but remove at 0.55 — an 8% residual the smoother must absorb
+  const st = runDeno(['run', '--quiet', '--allow-read', '--allow-write', SCRIPT,
+    `--mode=stamp`, `--width=${W}`, `--height=${H}`,
+    `--x=${X}`, `--y=${Y}`, `--size=${SIZE}`, `--gain=0.6`,
+    `--frame=${bgFile}`, `--out=${wmFile}`]);
+  assert.strictEqual(st.status, 0, String(st.stderr));
+  const wm = fs.readFileSync(wmFile);
+  const cleaned = await new Promise((resolve, reject) => {
+    const p = spawn(DENO, ['run', '--quiet', SCRIPT,
+      `--mode=filter`, `--width=${W}`, `--height=${H}`,
+      `--x=${X}`, `--y=${Y}`, `--size=${SIZE}`, `--gain=0.55`]);
+    const chunks = [];
+    p.stdout.on('data', c => chunks.push(c));
+    p.on('error', reject);
+    p.on('close', code => code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error('filter exit ' + code)));
+    p.stdin.write(wm);
+    p.stdin.end();
+  });
+  let maxDiff = 0;
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      const i = ((Y + r) * W + (X + c)) * 4;
+      for (let ch = 0; ch < 3; ch++) maxDiff = Math.max(maxDiff, Math.abs(cleaned[i + ch] - bg[i + ch]));
+    }
+  }
+  assert.ok(maxDiff <= 2, `flat-background ghost must be gone (maxDiff ${maxDiff})`);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
 test('veoClean calibrate: refuses a frame with no watermark', { skip: !hasDeno && 'bundled deno not installed' }, () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'veoclean-'));
   const bgFile = path.join(tmp, 'bg.raw');

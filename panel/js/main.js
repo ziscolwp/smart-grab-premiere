@@ -328,6 +328,7 @@ function currentOpts(allowClip) {
     cookiesFile: state.settings.cookiesFile,
     proxyUrl: state.settings.proxyUrl,
     trimMode: state.settings.trimMode,
+    flowDewatermark: state.settings.flowDewatermark !== false,
     clipEnabled: false
   };
   if (allowClip && $('clipEnabled').checked) {
@@ -382,7 +383,8 @@ $('addBtn').addEventListener('click', function () {
         entries.forEach(function (en) {
           toAdd.push({ url: en.url, opts: {
             quality: opts.quality, videoFormat: opts.videoFormat, audioFormat: opts.audioFormat,
-            cookiesBrowser: opts.cookiesBrowser, cookiesFile: opts.cookiesFile, proxyUrl: opts.proxyUrl, trimMode: opts.trimMode, clipEnabled: false
+            cookiesBrowser: opts.cookiesBrowser, cookiesFile: opts.cookiesFile, proxyUrl: opts.proxyUrl,
+            trimMode: opts.trimMode, flowDewatermark: opts.flowDewatermark, clipEnabled: false
           } });
         });
         done();

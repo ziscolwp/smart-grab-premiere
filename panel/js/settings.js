@@ -19,7 +19,8 @@ var DEFAULTS = {
   cookiesFile: '',                                           // path to a Netscape cookies.txt (overrides cookiesBrowser when set)
   trimMode: 'fast',                                          // 'fast' (download only the section) | 'precise' (full download + local trim)
   proxyUrl: '',                                              // yt-dlp --proxy URL (http/https/socks5) for ISP/region-blocked sites; '' = direct
-  ytDlpLastUpdate: 0                                         // ms epoch of the last yt-dlp download; 0 = never (drives the 14-day auto-update)
+  ytDlpLastUpdate: 0,                                        // ms epoch of the last yt-dlp download; 0 = never (drives the 14-day auto-update)
+  flowDewatermark: true                                      // auto-remove the Veo sparkle from Google Flow downloads
 };
 
 function merge(base, over) {

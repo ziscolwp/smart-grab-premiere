@@ -9,6 +9,7 @@ var binaries = require('./binaries.js');
 var errorHints = require('./errorHints.js');
 var tiktok = require('./tiktok.js');
 var flow = require('./flow.js');
+var veo = require('./veoWatermark.js');
 
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
@@ -94,6 +95,11 @@ function download(opts, callbacks, cb) {
   // Flow share links download via the generic extractor untouched; this just
   // renames the file from a bare UUID to "Flow clip [id]" (null for any other URL).
   var presetTemplate = flow.outputTemplate(opts.url);
+  // Flow (Veo) clips carry a baked-in sparkle watermark; when enabled, each
+  // downloaded video gets a de-watermark pass before import. Failures fall
+  // back to the original file with a warning — never block footage.
+  var wantClean = veo.shouldClean(opts);
+  var cleanWarning = null;
   // Is the SOURCE a TikTok page (vs. the resolved CDN URL we may set below)?
   // Drives the fail-fast-then-mirror path on networks that block TikTok.
   var tiktokNative = tiktok.isTikTokUrl(opts.url);
@@ -238,6 +244,64 @@ function download(opts, callbacks, cb) {
     });
   }
 
+  // Collect a process's stdout as a string (stderr kept for error messages).
+  function execCollect(exe, cmdArgs, cb) {
+    var p = childProcess.spawn(exe, cmdArgs, { env: env });
+    var out = '', errOut = '';
+    p.stdout.on('data', function (d) { out += d.toString(); });
+    p.stderr.on('data', function (d) { errOut += d.toString(); });
+    p.on('error', function (e) { cb(e, '', ''); });
+    p.on('close', function (code) {
+      cb(code === 0 ? null : new Error(path.basename(exe) + ' exited ' + code + ': ' + errOut.slice(-400)), out, errOut);
+    });
+  }
+
+  // Remove the Veo sparkle: probe -> extract probe frames -> calibrate ->
+  // ffmpeg decode | deno filter | ffmpeg encode. cb(err, cleanedPath).
+  function cleanFlowWatermark(src, cb) {
+    var deno = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+    var script = path.join(opts.extRoot || '', 'deno', 'veoClean.mjs');
+    if (!deno || !fs.existsSync(script)) return cb(new Error('watermark tools missing'));
+    execCollect(ffprobe, veo.probeDimsArgs(src), function (perr, out) {
+      var meta = perr ? null : veo.parseVideoProbe(out);
+      if (!meta || !veo.supportedPixFmt(meta.pixFmt)) return cb(new Error('unsupported source format'));
+      var candidates = veo.candidatesFor(meta.width, meta.height);
+      if (!candidates.length) return cb(new Error('no watermark candidates for this size'));
+      var probeRaw = path.join(tmp, 'veo-probe.raw');
+      var frames = veo.probeFrameIndexes(meta);
+      run(ffmpeg, veo.extractProbeArgs(src, frames, probeRaw), env, null, onProc, function (eerr) {
+        if (eerr || !fs.existsSync(probeRaw)) return cb(eerr || new Error('probe extraction failed'));
+        execCollect(deno, veo.calibrateArgs(script, probeRaw, meta, candidates), function (calErr, calOut) {
+          var cal = veo.parseCalibration(calOut);
+          if (!cal) return cb(calErr || new Error('watermark not recognized'));
+          var outPath = src.replace(/(\.[^.]+)$/, '.veoclean$1');
+          var dec = childProcess.spawn(ffmpeg, veo.decodeArgs(src), { env: env });
+          var flt = childProcess.spawn(deno, veo.filterArgs(script, meta, cal), { env: env });
+          var enc = childProcess.spawn(ffmpeg, veo.encodeArgs(src, meta, outPath), { env: env });
+          onProc(dec); onProc(flt); onProc(enc);
+          dec.stdout.pipe(flt.stdin);
+          flt.stdout.pipe(enc.stdin);
+          // A dying downstream process EPIPEs the upstream stdin — swallow it
+          // (failOnce below reports the real cause from the exit codes).
+          flt.stdin.on('error', function () {});
+          enc.stdin.on('error', function () {});
+          var failed = null;
+          function failOnce(e) { if (!failed) { failed = e; try { dec.kill(); flt.kill(); enc.kill(); } catch (x) {} } }
+          dec.on('error', failOnce); flt.on('error', failOnce); enc.on('error', failOnce);
+          dec.on('close', function (code) { if (code !== 0) failOnce(new Error('decode exited ' + code)); });
+          flt.on('close', function (code) { if (code !== 0) failOnce(new Error('filter exited ' + code)); });
+          enc.on('close', function (code) {
+            if (failed || code !== 0) return cb(failed || new Error('encode exited ' + code));
+            var ok = false;
+            try { ok = fs.statSync(outPath).size > 0; } catch (e) {}
+            if (!ok) return cb(new Error('empty output'));
+            cb(null, outPath);
+          });
+        });
+      });
+    });
+  }
+
   // Post-process each file in turn, then report all of them at once.
   function processMany(names, sectionsUsed) {
     var results = [];
@@ -252,7 +316,8 @@ function download(opts, callbacks, cb) {
         return cb(null, {
           path: results[0].path,
           paths: results.map(function (r) { return r.path; }),
-          size: sizeStr
+          size: sizeStr,
+          warning: cleanWarning
         });
       }
       if (names.length > 1) onProgress(null, 'Processing ' + (i + 1) + '/' + names.length + '...');
@@ -303,17 +368,41 @@ function download(opts, callbacks, cb) {
     };
     var localClip = opts.clipEnabled && opts.endTime && !sectionsUsed;
 
-    // For reencode targets, probe codecs first so an already-H.264/AAC file
-    // can be moved or remuxed instead of re-encoded.
-    if (!audioOnly && vinfo.needsReencode && !localClip) {
-      probeCodec(ffprobe, src, 'v:0', env, function (vc) {
-        probeCodec(ffprobe, src, 'a:0', env, function (ac) {
-          applyAction(L.choosePostProcess(Object.assign({}, base, { vcodec: vc, acodec: ac }), src, dest));
+    function continuePost() {
+      // For reencode targets, probe codecs first so an already-H.264/AAC file
+      // can be moved or remuxed instead of re-encoded.
+      if (!audioOnly && vinfo.needsReencode && !localClip) {
+        probeCodec(ffprobe, src, 'v:0', env, function (vc) {
+          probeCodec(ffprobe, src, 'a:0', env, function (ac) {
+            applyAction(L.choosePostProcess(Object.assign({}, base, { vcodec: vc, acodec: ac }), src, dest));
+          });
         });
-      });
-    } else {
-      applyAction(L.choosePostProcess(base, src, dest));
+      } else {
+        applyAction(L.choosePostProcess(base, src, dest));
+      }
     }
+
+    if (wantClean) {
+      onProgress(null, 'Removing watermark…');
+      cleanFlowWatermark(src, function (cerr, cleanedPath) {
+        if (cerr) {
+          cleanWarning = veo.WARNING;
+          return continuePost();
+        }
+        // Swap in the cleaned file under the original name so naming,
+        // post-process and import all see the file they expect. POSIX rename
+        // overwrites atomically; Windows needs the rm-first fallback.
+        try {
+          try { fs.renameSync(cleanedPath, src); }
+          catch (e1) { fs.rmSync(src); fs.renameSync(cleanedPath, src); }
+        } catch (e) {
+          cleanWarning = veo.WARNING;
+        }
+        continuePost();
+      });
+      return;
+    }
+    continuePost();
   }
 
   if (tiktokNative && tiktok.isBlocked()) {

@@ -56,6 +56,7 @@ function createSettingsView(deps) {
     syncCookiesRows();
     $('proxyUrl').value = s.proxyUrl || '';
     $('trimMode').value = s.trimMode || 'fast';
+    $('flowDewatermark').checked = s.flowDewatermark !== false;
     $('customRow').classList.toggle('hidden', s.destinationMode !== 'custom');
     $('updateStatus').textContent = '';
     $('cookiesFileStatus').textContent = '';
@@ -146,6 +147,7 @@ function createSettingsView(deps) {
     state.settings.cookiesFile = cmode === 'file' ? $('cookiesFile').value : '';
     state.settings.proxyUrl = $('proxyUrl').value.replace(/^\s+|\s+$/g, '');
     state.settings.trimMode = $('trimMode').value;
+    state.settings.flowDewatermark = $('flowDewatermark').checked;
     settingsMod.save(state.settings);
     if (deps.onSaved) deps.onSaved();
     close();

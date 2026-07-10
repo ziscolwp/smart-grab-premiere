@@ -139,7 +139,9 @@ function createQueue(deps) {
       if (it && it.status !== 'canceled') {
         setStatus(job.id, 'done', {
           outputPath: job.res.path,
-          statusMsg: impErr ? ('Downloaded (import failed): ' + impErr.message) : (job.res.size || 'Done')
+          statusMsg: impErr
+            ? ('Downloaded (import failed): ' + impErr.message)
+            : ((job.res.size || 'Done') + (job.res.warning ? ' · ⚠ ' + job.res.warning : ''))
         });
       } else {
         notify();   // canceled/removed mid-import — clean up without resurrecting it

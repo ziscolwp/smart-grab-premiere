@@ -16,9 +16,12 @@ function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
 }
 
-// One JIT watermark-tool install attempt per panel session — a ~40MB deno
-// download must not re-fire for every queued Flow clip once it has failed.
-var triedToolInstall = false;
+// One JIT watermark-tool install per panel session, shared across concurrent
+// downloads (the queue runs up to 3 at once): the first Flow clip that finds
+// deno missing starts the ~40MB install, the rest wait for that same result
+// instead of failing early. After a failure, later clips fail fast.
+var toolInstallState = null;   // null | 'pending' | 'failed'
+var toolInstallWaiters = [];   // cb(err) — err is null when the install landed
 
 // Run a process, stream stdout/stderr lines, keep a ring buffer for error reporting.
 function run(exe, args, env, onLine, onProc, done) {
@@ -294,16 +297,27 @@ function download(opts, callbacks, cb) {
     if (!fs.existsSync(script)) return cb(causeErr('tools', 'veoClean.mjs missing at ' + script));
     var deno = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
     if (deno) return runClean(deno);
-    if (triedToolInstall) return cb(causeErr('tools', 'deno not installed (install already attempted this session)'));
-    triedToolInstall = true;
+    if (toolInstallState === 'failed') return cb(causeErr('install-failed', 'deno download already failed this session'));
     onProgress(null, 'Installing watermark tools…');
+    toolInstallWaiters.push(function (ierr) {
+      if (ierr) return cb(ierr);
+      var installed = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+      if (!installed) return cb(causeErr('tools', 'deno still unresolved after install'));
+      onProgress(null, 'Removing watermark…');
+      runClean(installed);
+    });
+    if (toolInstallState === 'pending') return;
+    toolInstallState = 'pending';
     binaries.ensureAll(opts.extRoot, function (p) {
       onProgress(null, 'Installing watermark tools… ' + Math.round(p.percent || 0) + '%');
     }, function (ierr) {
-      var installed = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
-      if (!installed) return cb(causeErr('install-failed', 'deno download failed' + (ierr ? ': ' + ierr.message : '')));
-      onProgress(null, 'Removing watermark…');
-      runClean(installed);
+      var landed = !!binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+      toolInstallState = landed ? null : 'failed';
+      var waiters = toolInstallWaiters;
+      toolInstallWaiters = [];
+      for (var wi = 0; wi < waiters.length; wi++) {
+        waiters[wi](landed ? null : causeErr('install-failed', 'deno download failed' + (ierr ? ': ' + ierr.message : '')));
+      }
     });
 
     function runClean(deno) {

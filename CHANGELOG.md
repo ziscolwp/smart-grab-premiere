@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.1 — 2026-07-11
+
+### Fixed
+- **Watermark-removal failures now say why.** The generic ⚠ note is replaced by
+  per-cause messages: tools missing (points at Settings ▸ Repair downloads),
+  tools download failed, unsupported video format, no watermark detected in the
+  clip, or processing failed. Full detail (including the calibration score) is
+  appended to `veo-clean.log` next to the panel's managed binaries —
+  `~/Library/Application Support/SmartGrab/` on macOS, `%APPDATA%\SmartGrab\`
+  on Windows — so remote debugging no longer needs a screen share.
+- **Missing deno self-heals during the download.** Flow cleaning needs the
+  bundled deno runtime, but its setup download was allowed to fail silently.
+  If deno is absent when a Flow clip needs cleaning, the panel now downloads it
+  on the spot (once per session) instead of failing every clip.
+- **Honest setup copy.** When the optional deno download fails, the setup
+  banner no longer claims "everything still works" — it now says full YouTube
+  support and Flow watermark removal need it.
+
 ## 3.6.0 — 2026-07-10
 
 ### Added

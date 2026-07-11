@@ -118,8 +118,8 @@ test('arg builders: exact ffmpeg/ffprobe/deno argv arrays', () => {
   ]);
   assert.deepStrictEqual(V.extractProbeArgs('/t/in.mp4', [48, 96, 144], '/t/p.raw'), [
     '-v', 'error', '-y', '-i', '/t/in.mp4',
-    '-vf', "select='eq(n\\,48)+eq(n\\,96)+eq(n\\,144)'",
-    '-vsync', '0', '-frames:v', '3', '-f', 'rawvideo', '-pix_fmt', 'rgba', '/t/p.raw'
+    '-vf', "select='eq(n\\,48)+eq(n\\,96)+eq(n\\,144)',setpts=N/FRAME_RATE/TB",
+    '-frames:v', '3', '-f', 'rawvideo', '-pix_fmt', 'rgba', '/t/p.raw'
   ]);
   assert.deepStrictEqual(V.decodeArgs('/t/in.mp4'), [
     '-v', 'error', '-i', '/t/in.mp4', '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1'
@@ -188,4 +188,15 @@ test('parseCalibrationFailure: null for success payloads, junk, and empty', () =
   assert.strictEqual(V.parseCalibrationFailure('{"ok":true,"x":1}'), null);
   assert.strictEqual(V.parseCalibrationFailure('garbage'), null);
   assert.strictEqual(V.parseCalibrationFailure(''), null);
+});
+
+test('extractProbeArgs never uses -vsync (removed from current ffmpeg builds)', () => {
+  // Field failure 2026-07-11: Windows ships yt-dlp's master-latest ffmpeg,
+  // which removed the long-deprecated -vsync option — every probe extraction
+  // died with "Unrecognized option 'vsync'". setpts=N/FRAME_RATE/TB in the
+  // filter chain is byte-identical output and works on every ffmpeg version.
+  const args = V.extractProbeArgs('/t/in.mp4', [1, 2], '/t/p.raw');
+  assert.ok(args.indexOf('-vsync') === -1);
+  assert.ok(args.indexOf('-fps_mode') === -1, 'fps_mode is 5.1+ only — do not reintroduce a version-gated flag');
+  assert.ok(/setpts=N\/FRAME_RATE\/TB/.test(args[args.indexOf('-vf') + 1]));
 });

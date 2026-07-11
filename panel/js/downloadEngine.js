@@ -1,4 +1,5 @@
 // panel/js/downloadEngine.js
+// TODO: split by concern (watermark cleaning stage is a natural cut)
 // Orchestrates the download pipeline: yt-dlp -> validate -> post-process -> move.
 var fs = require('fs');
 var path = require('path');
@@ -14,6 +15,13 @@ var veo = require('./veoWatermark.js');
 function uuidish() {
   return Date.now().toString(36) + '-' + Math.floor(Math.random() * 1e9).toString(36);
 }
+
+// One JIT watermark-tool install per panel session, shared across concurrent
+// downloads (the queue runs up to 3 at once): the first Flow clip that finds
+// deno missing starts the ~40MB install, the rest wait for that same result
+// instead of failing early. After a failure, later clips fail fast.
+var toolInstallState = null;   // null | 'pending' | 'failed'
+var toolInstallWaiters = [];   // cb(err) — err is null when the install landed
 
 // Run a process, stream stdout/stderr lines, keep a ring buffer for error reporting.
 function run(exe, args, env, onLine, onProc, done) {
@@ -256,24 +264,80 @@ function download(opts, callbacks, cb) {
     });
   }
 
+  // A cleaning error that knows WHY it failed — veo.warningFor(cleanCause)
+  // turns the code into the per-cause row warning; the message goes to the log.
+  function causeErr(cause, msg) {
+    var e = new Error(msg);
+    e.cleanCause = cause;
+    return e;
+  }
+
+  // Fail-soft must not mean fly-blind: keep the detail (calibration score,
+  // exit codes) in a small support log next to the managed binaries, and echo
+  // it to the CEP console. Never let logging itself break a download.
+  function logCleanFailure(err) {
+    var line = new Date().toISOString() + ' [' + (err.cleanCause || 'unknown') + '] '
+      + err.message + ' :: ' + opts.url + '\n';
+    try {
+      var dir = path.dirname(binaries.appSupportBin());
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+      var file = path.join(dir, 'veo-clean.log');
+      try { if (fs.statSync(file).size > 262144) fs.rmSync(file, { force: true }); } catch (e) {}
+      fs.appendFileSync(file, line);
+    } catch (e) {}
+    try { console.error('[veo-clean] ' + line); } catch (e) {}
+  }
+
   // Remove the Veo sparkle: probe -> extract probe frames -> calibrate ->
-  // ffmpeg decode | deno filter | ffmpeg encode. cb(err, cleanedPath).
+  // ffmpeg decode | deno filter | ffmpeg encode. cb(err, cleanedPath); err
+  // carries .cleanCause for the row warning + support log. If deno is missing
+  // (its setup download is tolerated failing), fetch it now — once per session.
   function cleanFlowWatermark(src, cb) {
-    var deno = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
     var script = path.join(opts.extRoot || '', 'deno', 'veoClean.mjs');
-    if (!deno || !fs.existsSync(script)) return cb(new Error('watermark tools missing'));
+    if (!fs.existsSync(script)) return cb(causeErr('tools', 'veoClean.mjs missing at ' + script));
+    var deno = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+    if (deno) return runClean(deno);
+    if (toolInstallState === 'failed') return cb(causeErr('install-failed', 'deno download already failed this session'));
+    onProgress(null, 'Installing watermark tools…');
+    toolInstallWaiters.push(function (ierr) {
+      if (ierr) return cb(ierr);
+      var installed = binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+      if (!installed) return cb(causeErr('tools', 'deno still unresolved after install'));
+      onProgress(null, 'Removing watermark…');
+      runClean(installed);
+    });
+    if (toolInstallState === 'pending') return;
+    toolInstallState = 'pending';
+    binaries.ensureAll(opts.extRoot, function (p) {
+      onProgress(null, 'Installing watermark tools… ' + Math.round(p.percent || 0) + '%');
+    }, function (ierr) {
+      var landed = !!binaries.resolveBinary('deno', { extRoot: opts.extRoot });
+      toolInstallState = landed ? null : 'failed';
+      var waiters = toolInstallWaiters;
+      toolInstallWaiters = [];
+      for (var wi = 0; wi < waiters.length; wi++) {
+        waiters[wi](landed ? null : causeErr('install-failed', 'deno download failed' + (ierr ? ': ' + ierr.message : '')));
+      }
+    });
+
+    function runClean(deno) {
     execCollect(ffprobe, veo.probeDimsArgs(src), function (perr, out) {
       var meta = perr ? null : veo.parseVideoProbe(out);
-      if (!meta || !veo.supportedPixFmt(meta.pixFmt)) return cb(new Error('unsupported source format'));
+      if (!meta) return cb(causeErr('pipeline', 'probe failed: ' + (perr ? perr.message : 'no dimensions in output')));
+      if (!veo.supportedPixFmt(meta.pixFmt)) return cb(causeErr('format', 'unsupported pixel format "' + meta.pixFmt + '" (need 8-bit 4:2:0)'));
       var candidates = veo.candidatesFor(meta.width, meta.height);
-      if (!candidates.length) return cb(new Error('no watermark candidates for this size'));
+      if (!candidates.length) return cb(causeErr('format', 'no watermark candidates for ' + meta.width + 'x' + meta.height));
       var probeRaw = path.join(tmp, 'veo-probe.raw');
       var frames = veo.probeFrameIndexes(meta);
       run(ffmpeg, veo.extractProbeArgs(src, frames, probeRaw), env, null, onProc, function (eerr) {
-        if (eerr || !fs.existsSync(probeRaw)) return cb(eerr || new Error('probe extraction failed'));
+        if (eerr || !fs.existsSync(probeRaw)) return cb(causeErr('pipeline', 'probe extraction failed' + (eerr ? ': ' + eerr.message : '')));
         execCollect(deno, veo.calibrateArgs(script, probeRaw, meta, candidates), function (calErr, calOut) {
           var cal = veo.parseCalibration(calOut);
-          if (!cal) return cb(calErr || new Error('watermark not recognized'));
+          if (!cal) {
+            var calFail = veo.parseCalibrationFailure(calOut);
+            if (calFail) return cb(causeErr('not-recognized', 'calibration: ' + calFail.reason + (calFail.presence !== null ? ' (best presence ' + calFail.presence + ')' : '')));
+            return cb(causeErr('pipeline', 'calibrate crashed: ' + (calErr ? calErr.message : 'unparseable output')));
+          }
           var outPath = src.replace(/(\.[^.]+)$/, '.veoclean$1');
           var dec = childProcess.spawn(ffmpeg, veo.decodeArgs(src), { env: env });
           var flt = childProcess.spawn(deno, veo.filterArgs(script, meta, cal), { env: env });
@@ -291,15 +355,19 @@ function download(opts, callbacks, cb) {
           dec.on('close', function (code) { if (code !== 0) failOnce(new Error('decode exited ' + code)); });
           flt.on('close', function (code) { if (code !== 0) failOnce(new Error('filter exited ' + code)); });
           enc.on('close', function (code) {
-            if (failed || code !== 0) return cb(failed || new Error('encode exited ' + code));
+            if (failed || code !== 0) {
+              var base = failed || new Error('encode exited ' + code);
+              return cb(base.cleanCause ? base : causeErr('pipeline', base.message));
+            }
             var ok = false;
             try { ok = fs.statSync(outPath).size > 0; } catch (e) {}
-            if (!ok) return cb(new Error('empty output'));
+            if (!ok) return cb(causeErr('pipeline', 'empty output'));
             cb(null, outPath);
           });
         });
       });
     });
+    }
   }
 
   // Post-process each file in turn, then report all of them at once.
@@ -386,7 +454,8 @@ function download(opts, callbacks, cb) {
       onProgress(null, 'Removing watermark…');
       cleanFlowWatermark(src, function (cerr, cleanedPath) {
         if (cerr) {
-          cleanWarning = veo.WARNING;
+          cleanWarning = veo.warningFor(cerr.cleanCause);
+          logCleanFailure(cerr);
           return continuePost();
         }
         // Swap in the cleaned file under the original name so naming,
@@ -397,6 +466,7 @@ function download(opts, callbacks, cb) {
           catch (e1) { fs.rmSync(src); fs.renameSync(cleanedPath, src); }
         } catch (e) {
           cleanWarning = veo.WARNING;
+          logCleanFailure(causeErr('pipeline', 'cleaned-file swap failed: ' + e.message));
         }
         continuePost();
       });

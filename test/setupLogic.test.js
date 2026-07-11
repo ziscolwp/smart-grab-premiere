@@ -99,3 +99,10 @@ test('failureMessage: critical missing vs optional-only', () => {
 test('REQUIRED lists the four managed binaries in download order', () => {
   assert.deepStrictEqual(S.REQUIRED, ['yt-dlp', 'ffmpeg', 'ffprobe', 'deno']);
 });
+
+test('failureMessage: deno-only failure owns up to what breaks (Flow watermark removal)', () => {
+  const msg = S.failureMessage(['deno']);
+  assert.ok(/watermark/i.test(msg), 'names the Flow watermark impact');
+  assert.ok(/retry/i.test(msg), 'still offers the retry path');
+  assert.ok(!/everything still works/i.test(msg), 'no longer claims nothing is affected');
+});

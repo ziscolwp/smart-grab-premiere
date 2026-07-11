@@ -148,3 +148,44 @@ test('arg builders: exact ffmpeg/ffprobe/deno argv arrays', () => {
 test('WARNING copy is exact', () => {
   assert.strictEqual(V.WARNING, 'Watermark not removed — imported original.');
 });
+
+test('warningFor: each cause maps to a distinct, actionable warning that names the fallback', () => {
+  const byCause = {
+    tools: V.warningFor('tools'),
+    'install-failed': V.warningFor('install-failed'),
+    format: V.warningFor('format'),
+    'not-recognized': V.warningFor('not-recognized'),
+    pipeline: V.warningFor('pipeline')
+  };
+  assert.ok(/repair/i.test(byCause.tools), 'tools points at Settings Repair');
+  assert.ok(/download/i.test(byCause['install-failed']), 'install-failed names the download');
+  assert.ok(/format/i.test(byCause.format));
+  assert.ok(/detect/i.test(byCause['not-recognized']));
+  assert.ok(/processing/i.test(byCause.pipeline));
+  const all = Object.keys(byCause).map(k => byCause[k]);
+  all.forEach(w => assert.ok(/imported original/i.test(w), 'every warning explains the fallback'));
+  assert.strictEqual(new Set(all).size, all.length, 'strings are distinct');
+});
+
+test('warningFor: unknown or missing cause falls back to the generic warning', () => {
+  assert.strictEqual(V.warningFor('bogus'), V.WARNING);
+  assert.strictEqual(V.warningFor(), V.WARNING);
+});
+
+test('parseCalibrationFailure: reason and presence from a calibrate ok:false payload', () => {
+  assert.deepStrictEqual(
+    V.parseCalibrationFailure('{"ok":false,"reason":"not-found","presence":0.0123}'),
+    { reason: 'not-found', presence: 0.0123 }
+  );
+  // presence optional in the payload -> defaults to null
+  assert.deepStrictEqual(
+    V.parseCalibrationFailure('{"ok":false,"reason":"bad-args"}'),
+    { reason: 'bad-args', presence: null }
+  );
+});
+
+test('parseCalibrationFailure: null for success payloads, junk, and empty', () => {
+  assert.strictEqual(V.parseCalibrationFailure('{"ok":true,"x":1}'), null);
+  assert.strictEqual(V.parseCalibrationFailure('garbage'), null);
+  assert.strictEqual(V.parseCalibrationFailure(''), null);
+});

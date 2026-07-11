@@ -8,6 +8,20 @@ var flow = require('./flow.js');
 
 var WARNING = 'Watermark not removed — imported original.';
 
+// Per-cause row warnings: same fail-soft outcome, but the user (and remote
+// support) can tell WHY. Codes are set by downloadEngine on the error object.
+var WARNINGS_BY_CAUSE = {
+  'tools': 'Watermark not removed (tools missing — run Settings ▸ Repair downloads) — imported original.',
+  'install-failed': 'Watermark not removed (tools download failed — retry via Settings ▸ Repair downloads) — imported original.',
+  'format': 'Watermark not removed (unsupported video format) — imported original.',
+  'not-recognized': 'Watermark not removed (no watermark detected in this clip) — imported original.',
+  'pipeline': 'Watermark not removed (processing failed) — imported original.'
+};
+
+function warningFor(cause) {
+  return WARNINGS_BY_CAUSE.hasOwnProperty(cause) ? WARNINGS_BY_CAUSE[cause] : WARNING;
+}
+
 function clampInt(v, min, max) {
   return Math.max(min, Math.min(max, Math.round(v)));
 }
@@ -123,6 +137,16 @@ function parseCalibration(text) {
   return { x: o.x, y: o.y, size: o.size, gain: o.gain };
 }
 
+// The calibrate step prints {ok:false, reason, presence?} before exiting 3 —
+// extract it so the failure log can say how close the best candidate scored.
+function parseCalibrationFailure(text) {
+  var o;
+  try { o = JSON.parse(String(text || '')); } catch (e) { return null; }
+  if (!o || o.ok !== false || typeof o.reason !== 'string') return null;
+  var presence = (typeof o.presence === 'number' && isFinite(o.presence)) ? o.presence : null;
+  return { reason: o.reason, presence: presence };
+}
+
 // ---- argv builders --------------------------------------------------------
 
 function probeDimsArgs(file) {
@@ -172,6 +196,8 @@ module.exports = {
   parseVideoProbe: parseVideoProbe,
   probeFrameIndexes: probeFrameIndexes,
   parseCalibration: parseCalibration,
+  parseCalibrationFailure: parseCalibrationFailure,
+  warningFor: warningFor,
   probeDimsArgs: probeDimsArgs,
   extractProbeArgs: extractProbeArgs,
   decodeArgs: decodeArgs,

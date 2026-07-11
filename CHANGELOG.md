@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.6.2 — 2026-07-11
+
+### Fixed
+- **Flow watermark removal was broken on Windows.** Probe-frame extraction
+  used ffmpeg's long-deprecated `-vsync` option, which current builds have
+  removed — and Windows installs get yt-dlp's `master-latest` ffmpeg, so every
+  clean attempt died with `Unrecognized option 'vsync'` and imported the
+  original. Timestamps are now normalized in the filter chain instead
+  (`setpts=N/FRAME_RATE/TB`): byte-identical output, works on every ffmpeg
+  version, no version-gated flags. First field bug pinpointed by 3.6.1's
+  `veo-clean.log`.
+
 ## 3.6.1 — 2026-07-11
 
 ### Fixed

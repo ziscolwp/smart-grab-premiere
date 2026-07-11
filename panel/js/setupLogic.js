@@ -75,7 +75,7 @@ function failureMessage(failedNames) {
       + ' — check your internet connection and hit Retry.';
   }
   return 'Optional component (' + failedNames.join(', ') + ') didn’t download — '
-    + 'everything still works. Retry any time.';
+    + 'full YouTube support and Flow watermark removal need it. Retry any time.';
 }
 
 module.exports = {

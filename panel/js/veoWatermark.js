@@ -157,9 +157,13 @@ function probeDimsArgs(file) {
 
 function extractProbeArgs(file, frames, outRaw) {
   var sel = frames.map(function (n) { return 'eq(n\\,' + n + ')'; }).join('+');
+  // No -vsync (removed from current ffmpeg; broke every Windows master-latest
+  // build) and no -fps_mode (5.1+ only): renumbering PTS to consecutive
+  // frame-rate spacing makes dup/drop a no-op on every ffmpeg version, with
+  // byte-identical output to the old '-vsync 0' (verified against 8.1).
   return ['-v', 'error', '-y', '-i', file,
-    '-vf', "select='" + sel + "'",
-    '-vsync', '0', '-frames:v', String(frames.length),
+    '-vf', "select='" + sel + "',setpts=N/FRAME_RATE/TB",
+    '-frames:v', String(frames.length),
     '-f', 'rawvideo', '-pix_fmt', 'rgba', outRaw];
 }
 

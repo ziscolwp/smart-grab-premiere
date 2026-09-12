@@ -113,16 +113,19 @@ function curlGet(url, cb) {
   var args = ['-fsSL', '--connect-timeout', '20', '--max-time', '40',
               '-A', 'Mozilla/5.0', url];
   var curl = childProcess.spawn(binaries.systemTool('curl'), args);
-  var out = '', err = '';
+  var out = '', err = '', finished = false;
+  // A failed spawn (ENOENT) emits 'error' AND 'close' — report exactly once,
+  // or the caller would start two downloads for one queue row.
+  function once(e, body) { if (finished) return; finished = true; cb(e, body); }
   curl.stdout.on('data', function (d) { out += d.toString(); if (out.length > 4e6) curl.kill(); });
   curl.stderr.on('data', function (d) { err += d.toString(); });
-  curl.on('error', cb);
+  curl.on('error', once);
   curl.on('close', function (code) {
     if (code !== 0) {
       var tail = err.split(/\r|\n/).filter(function (l) { return l; }).slice(-1)[0] || '';
-      return cb(new Error('curl ' + code + (tail ? ': ' + tail : '')));
+      return once(new Error('curl ' + code + (tail ? ': ' + tail : '')));
     }
-    cb(null, out);
+    once(null, out);
   });
 }
 

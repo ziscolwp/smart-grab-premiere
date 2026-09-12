@@ -78,8 +78,8 @@ test('pageUrl: canonical flow.google.com page for a share id (old links 301 ther
 });
 
 test('apiKeyFromHtml: pulls the public web key the share page embeds', () => {
-  const html = '<script>AF_initDataCallback({"Im6cmf":"/_/AiSandboxAngularFrontend","K21R3e":"AIzaSyDSjGxWlo68HcGt6mbaIq9YbkKhFQnt3sk","LoQv7e":false});</script>';
-  assert.strictEqual(F.apiKeyFromHtml(html), 'AIzaSyDSjGxWlo68HcGt6mbaIq9YbkKhFQnt3sk');
+  const html = '<script>AF_initDataCallback({"Im6cmf":"/_/AiSandboxAngularFrontend","K21R3e":"AIzaSyEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAM","LoQv7e":false});</script>';
+  assert.strictEqual(F.apiKeyFromHtml(html), 'AIzaSyEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAM');
 });
 
 test('apiKeyFromHtml: falls back to any Google web key, empty when none', () => {

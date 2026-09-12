@@ -111,6 +111,10 @@ function download(opts, callbacks, cb) {
   // Is the SOURCE a TikTok page (vs. the resolved CDN URL we may set below)?
   // Drives the fail-fast-then-mirror path on networks that block TikTok.
   var tiktokNative = tiktok.isTikTokUrl(opts.url);
+  // Flow share page: client-rendered since the flow.google.com move, so yt-dlp
+  // alone fails with "Unsupported URL". Resolved via Flow's API first (below).
+  var flowShare = flow.isShareUrl(opts.url);
+  var flowResolveErr = null;   // why the resolver couldn't help, for the error card
 
   // First try the fast path (server-side --download-sections for clips).
   // If that yt-dlp run fails and sections were in play, retry once with a
@@ -159,6 +163,23 @@ function download(opts, callbacks, cb) {
     });
   }
 
+  // Flow share link: ask Flow's getSharedMedia API for the signed MP4 URL and
+  // download THAT (yt-dlp's generic extractor sees nothing on the page). If
+  // the API can't help — unshared/deleted clip, or the page changed — still
+  // try the page natively so any future og:video keeps working, and remember
+  // the resolver's reason for the error card.
+  function startFlow() {
+    onProgress(0, 'Resolving Flow clip…');
+    flow.resolve(opts.url, function (rerr, info) {
+      if (!rerr && info && info.videoUrl) {
+        effectiveUrl = info.videoUrl;
+      } else {
+        flowResolveErr = rerr || new Error('Flow returned no downloadable video.');
+      }
+      startAttempt(true);
+    });
+  }
+
   function startAttempt(sectionsAllowed) {
     onProgress(0, 'Downloading...');
     attemptDownload(sectionsAllowed, function (err, sectionsUsed) {
@@ -171,6 +192,16 @@ function download(opts, callbacks, cb) {
           freshTmp();
           onProgress(0, 'Fast trim unavailable — downloading full video...');
           return startAttempt(false);
+        }
+        if (flowResolveErr) {
+          // Neither Flow's API nor yt-dlp could get the clip. The resolver's
+          // reason is the useful one (unshared clip vs. page change) — surface
+          // it with the Flow hint instead of yt-dlp's generic "Unsupported URL".
+          var hit = errorHints.friendly('flow.google.com');
+          var ferr = new Error(hit.message + ' ' + flowResolveErr.message);
+          ferr.hint = hit.hint;
+          ferr.raw = (err.raw || err.message) + '\n' + flowResolveErr.message;
+          err = ferr;
         }
         cleanup();
         return cb(err);
@@ -479,6 +510,8 @@ function download(opts, callbacks, cb) {
     // This network already blocked TikTok this session — skip the doomed native
     // attempt and resolve straight away.
     tryTikTokResolver(new Error('TikTok is blocked on this network and the mirror could not be reached. Retry in a moment.'));
+  } else if (flowShare) {
+    startFlow();
   } else {
     startAttempt(true);
   }

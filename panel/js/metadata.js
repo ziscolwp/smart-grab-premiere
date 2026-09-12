@@ -4,6 +4,7 @@ var childProcess = require('child_process');
 var binaries = require('./binaries.js');
 var L = require('./engineLogic.js');
 var tiktok = require('./tiktok.js');
+var flow = require('./flow.js');
 
 var INFO_TEMPLATE = '%(title)s\t%(duration)s\t%(thumbnail)s\t%(extractor_key)s\t%(uploader)s';
 
@@ -79,6 +80,20 @@ function fetchInfo(url, opts, cb) {
         return done(null, {
           title: info.title || url, durationSec: info.durationSec,
           thumbnail: info.thumbnail || null, extractor: 'TikTok', uploader: info.uploader || null
+        });
+      }
+      fetchInfoNative(url, opts, done);
+    });
+  }
+  // Flow: the share page is client-rendered, so a native yt-dlp probe can only
+  // fail ("Unsupported URL"). Ask Flow's getSharedMedia API — two fast GETs —
+  // and fall back to the native probe only if it can't help.
+  if (flow.isShareUrl(url)) {
+    return flow.resolve(url, function (rerr, info) {
+      if (!rerr && info) {
+        return done(null, {
+          title: info.title || ('Flow clip ' + (info.id || '')), durationSec: info.durationSec,
+          thumbnail: info.thumbnail || null, extractor: 'Flow', uploader: info.uploader || null
         });
       }
       fetchInfoNative(url, opts, done);

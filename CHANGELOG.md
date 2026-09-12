@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.6.3 — 2026-09-12
+
+### Fixed
+- **Google Flow share links failed with "No video found on this page."** Flow
+  moved from `labs.google` to `flow.google.com` and its share page is now
+  rendered client-side, so the `og:video` tag yt-dlp relied on is gone (old
+  `labs.google` links redirect there and broke the same way). The panel now
+  asks Flow's own share API for the clip — the same call the page makes,
+  no login or cookies needed — and downloads the signed MP4 it returns
+  through the normal pipeline. Files keep their `Flow clip [id].mp4` name,
+  fast trims still work, and the queue card shows the prompt, duration, and
+  thumbnail. Both link forms are accepted.
+
 ## 3.6.2 — 2026-07-11
 
 ### Fixed

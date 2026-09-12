@@ -64,6 +64,17 @@ test('Google Flow fetch failure points at the Share link', () => {
   assert.ok(r.hint.indexOf('Share') !== -1);
 });
 
+test('Google Flow failure on the new flow.google.com host is still a Flow hint', () => {
+  // yt-dlp's generic extractor on a client-rendered Flow page: no og:video.
+  const raw = [
+    '[generic] Extracting URL: https://flow.google.com/shared/video/00000000-0000-0000-0000-000000000000',
+    'ERROR: Unsupported URL: https://flow.google.com/shared/video/00000000-0000-0000-0000-000000000000'
+  ].join('\n');
+  const r = E.friendly(raw);
+  assert.ok(r.message.indexOf('Flow') !== -1);
+  assert.ok(r.hint.indexOf('Share') !== -1);
+});
+
 test('unknown errors return null (caller keeps raw text)', () => {
   assert.strictEqual(E.friendly('something completely novel'), null);
   assert.strictEqual(E.friendly(''), null);

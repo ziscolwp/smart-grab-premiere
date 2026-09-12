@@ -23,7 +23,7 @@ var SOURCES = [
   { key: 'facebook',  label: 'Facebook',  re: /(?:facebook\.com|fb\.watch)/ },
   { key: 'dailymotion', label: 'Dailymotion', re: /dailymotion\.com/ },
   { key: 'streamable', label: 'Streamable', re: /streamable\.com/ },
-  { key: 'flow',      label: 'Flow',      re: /labs\.google\/fx\/tools\/flow/ }
+  { key: 'flow',      label: 'Flow',      re: /(?:labs\.google\/fx\/tools\/flow|flow\.google\.com)/ }
 ];
 
 function source(url) {
